@@ -1,8 +1,8 @@
 name = "bd-factnews-cdn"
 main = "src/index.ts"
 compatibility_date = "2025-05-01"
+workers_dev = false
 
-[vars]
-# Override in Cloudflare Dashboard -> Settings -> Variables and Secrets:
-# wrangler secret put CDN_SIGNING_SECRET
-CDN_SIGNING_SECRET = "replace-with-strong-32-char-secret"
+routes = [
+  { pattern = "cdn.factnewsbangladesh.bond", custom_domain = true }
+]
