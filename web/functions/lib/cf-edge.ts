@@ -1,6 +1,5 @@
 /**
- * Shared Cloudflare Pages Edge Utilities (WebCrypto + Supabase REST + HMAC CDN + PAT Auth)
- * Uses pure Web Standards — zero Node.js runtime dependency overhead.
+ * Shared Cloudflare Pages Edge Utilities (WebCrypto + Supabase REST + Hardened SSRF + PAT Auth)
  */
 
 export interface PagesEnv {
@@ -24,15 +23,27 @@ export interface PagesContext<E = PagesEnv> {
 }
 
 const DEFAULT_CDN_SECRET = "bd-factnews-local-cdn-signing-secret-change-me";
+const ALLOWED_RASTER_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/avif",
+  "image/gif",
+  "image/x-icon",
+  "image/vnd.microsoft.icon",
+]);
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
-export function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "X-Content-Type-Options": "nosniff",
-    },
-  });
+export function jsonResponse(body: unknown, status = 200, noStore = false): Response {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json; charset=utf-8",
+    "X-Content-Type-Options": "nosniff",
+  };
+  if (noStore) {
+    headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+  }
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 export function getSupabaseConfig(env: PagesEnv): { url: string; serviceKey: string } | null {
@@ -80,16 +91,27 @@ export function isSafeExternalUrl(raw: string): boolean {
   try {
     const u = new URL(raw);
     if (u.protocol !== "https:" && u.protocol !== "http:") return false;
-    const h = u.hostname.toLowerCase();
+    if (u.username || u.password) return false;
+    const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    if (!h || !h.includes(".") || /^\d+$/.test(h)) return false;
     if (
       h === "localhost" ||
       h.endsWith(".local") ||
+      h.endsWith(".internal") ||
+      h.endsWith(".localhost") ||
+      h.startsWith("0.") ||
       /^127\./.test(h) ||
       /^10\./.test(h) ||
       /^192\.168\./.test(h) ||
       /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
       /^169\.254\./.test(h) ||
-      h === "::1"
+      /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(h) ||
+      h === "::1" ||
+      h === "::" ||
+      h.startsWith("::ffff:") ||
+      h.startsWith("fe80:") ||
+      h.startsWith("fc") ||
+      h.startsWith("fd")
     ) {
       return false;
     }
@@ -97,6 +119,55 @@ export function isSafeExternalUrl(raw: string): boolean {
   } catch {
     return false;
   }
+}
+
+export async function fetchSafeExternalImage(
+  initialUrl: string,
+): Promise<{ ok: true; contentType: string; body: ArrayBuffer } | { ok: false }> {
+  let currentUrl = initialUrl;
+
+  for (let hop = 0; hop <= 3; hop += 1) {
+    if (!isSafeExternalUrl(currentUrl)) return { ok: false };
+
+    const upstream = await fetch(currentUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        Accept: "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,bn;q=0.8",
+      },
+      redirect: "manual",
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (upstream.status >= 300 && upstream.status < 400) {
+      const location = upstream.headers.get("location");
+      if (!location) return { ok: false };
+      currentUrl = new URL(location, currentUrl).toString();
+      continue;
+    }
+
+    if (!upstream.ok) return { ok: false };
+
+    const rawMime = (upstream.headers.get("content-type") || "").split(";")[0]?.trim().toLowerCase() || "";
+    if (!ALLOWED_RASTER_TYPES.has(rawMime)) {
+      return { ok: false };
+    }
+
+    const declaredLen = Number(upstream.headers.get("content-length") || "0");
+    if (declaredLen > MAX_IMAGE_BYTES) {
+      return { ok: false };
+    }
+
+    const buffer = await upstream.arrayBuffer();
+    if (buffer.byteLength === 0 || buffer.byteLength > MAX_IMAGE_BYTES) {
+      return { ok: false };
+    }
+
+    return { ok: true, contentType: rawMime, body: buffer };
+  }
+
+  return { ok: false };
 }
 
 export async function signCdnPayload(payloadB64: string, secret: string): Promise<string> {

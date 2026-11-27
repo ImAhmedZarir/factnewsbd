@@ -17,16 +17,27 @@ export function isSafeExternalImageUrl(rawUrl: string): boolean {
   try {
     const parsed = new URL(rawUrl);
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
-    const host = parsed.hostname.toLowerCase();
+    if (parsed.username || parsed.password) return false;
+    const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    if (!host || !host.includes(".") || /^\d+$/.test(host)) return false;
     if (
       host === "localhost" ||
       host.endsWith(".local") ||
+      host.endsWith(".internal") ||
+      host.endsWith(".localhost") ||
+      host.startsWith("0.") ||
       /^127\./.test(host) ||
       /^10\./.test(host) ||
       /^192\.168\./.test(host) ||
       /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
       /^169\.254\./.test(host) ||
-      host === "::1"
+      /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(host) ||
+      host === "::1" ||
+      host === "::" ||
+      host.startsWith("::ffff:") ||
+      host.startsWith("fe80:") ||
+      host.startsWith("fc") ||
+      host.startsWith("fd")
     ) {
       return false;
     }

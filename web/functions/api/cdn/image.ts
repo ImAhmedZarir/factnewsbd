@@ -1,4 +1,9 @@
-import { jsonResponse, verifyCdnImageTokenEdge, type PagesContext } from "../../lib/cf-edge";
+import {
+  fetchSafeExternalImage,
+  jsonResponse,
+  verifyCdnImageTokenEdge,
+  type PagesContext,
+} from "../../lib/cf-edge";
 
 const FALLBACK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
   <defs>
@@ -13,16 +18,18 @@ const FALLBACK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" heigh
   <text x="600" y="366" text-anchor="middle" font-family="system-ui, sans-serif" font-size="17" fill="#94a3b8">Verified Multi-Source Dispatch</text>
 </svg>`;
 
+const SANDBOX_CSP = "default-src 'none'; script-src 'none'; style-src 'none'; sandbox";
+
 export async function onRequestGet(context: PagesContext) {
   const url = new URL(context.request.url);
   const token = url.searchParams.get("t");
   if (!token) {
-    return jsonResponse({ error: "Missing CDN image token" }, 400);
+    return jsonResponse({ error: "Missing CDN image token" }, 400, true);
   }
 
   const targetUrl = await verifyCdnImageTokenEdge(token, context.env.CDN_SIGNING_SECRET);
   if (!targetUrl) {
-    return jsonResponse({ error: "Invalid or tampered CDN token" }, 403);
+    return jsonResponse({ error: "Invalid or tampered CDN token" }, 403, true);
   }
 
   const edgeCache = (globalThis as unknown as { caches?: { default?: Cache } }).caches?.default;
@@ -33,34 +40,26 @@ export async function onRequestGet(context: PagesContext) {
   }
 
   try {
-    const upstream = await fetch(targetUrl, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9,bn;q=0.8",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(5000),
-    });
-
-    const contentType = upstream.headers.get("content-type") || "";
-    if (!upstream.ok || !contentType.startsWith("image/")) {
+    const result = await fetchSafeExternalImage(targetUrl);
+    if (!result.ok) {
       return new Response(FALLBACK_SVG, {
         status: 200,
         headers: {
           "Content-Type": "image/svg+xml; charset=utf-8",
           "Cache-Control": "public, max-age=1800",
+          "Content-Security-Policy": SANDBOX_CSP,
+          "X-Content-Type-Options": "nosniff",
           "X-CDN-Fallback": "upstream-unavailable",
         },
       });
     }
 
-    const response = new Response(upstream.body, {
+    const response = new Response(result.body, {
       status: 200,
       headers: {
-        "Content-Type": contentType,
+        "Content-Type": result.contentType,
         "Cache-Control": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "Content-Security-Policy": SANDBOX_CSP,
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff",
       },
@@ -75,6 +74,8 @@ export async function onRequestGet(context: PagesContext) {
       headers: {
         "Content-Type": "image/svg+xml; charset=utf-8",
         "Cache-Control": "public, max-age=600",
+        "Content-Security-Policy": SANDBOX_CSP,
+        "X-Content-Type-Options": "nosniff",
         "X-CDN-Fallback": "timeout",
       },
     });

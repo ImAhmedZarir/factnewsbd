@@ -1,11 +1,30 @@
 import {
   buildCdnImageTokenEdge,
   getSupabaseConfig,
+  isSafeExternalUrl,
   jsonResponse,
   sha256Hex,
   verifyPatBearerEdge,
   type PagesContext,
 } from "../../lib/cf-edge";
+
+const ALLOWED_CATEGORIES = new Set([
+  "national",
+  "politics",
+  "economy",
+  "international",
+  "tech",
+  "sports",
+  "entertainment",
+  "regional",
+]);
+const ALLOWED_VERIFICATION = new Set([
+  "verified",
+  "corroborated",
+  "single_source",
+  "fact_check",
+  "disputed",
+]);
 
 interface IncomingArticle {
   id?: string;
@@ -43,12 +62,12 @@ interface IncomingArticle {
 export async function onRequestGet(context: PagesContext) {
   const auth = await verifyPatBearerEdge(context.request.headers.get("authorization"), context.env);
   if (!auth.ok) {
-    return jsonResponse({ ok: true, service: "FactNews Bangladesh Ingest API" });
+    return jsonResponse({ ok: true, service: "FactNews Bangladesh Ingest API" }, 200, true);
   }
 
   const sb = getSupabaseConfig(context.env);
   if (!sb) {
-    return jsonResponse({ ok: true, mode: "unconfigured", recent_ingests: [] });
+    return jsonResponse({ ok: true, mode: "unconfigured", recent_ingests: [] }, 200, true);
   }
 
   const res = await fetch(
@@ -61,18 +80,18 @@ export async function onRequestGet(context: PagesContext) {
     },
   );
   const logs = res.ok ? await res.json() : [];
-  return jsonResponse({ ok: true, mode: "supabase", recent_ingests: logs });
+  return jsonResponse({ ok: true, mode: "supabase", recent_ingests: logs }, 200, true);
 }
 
 export async function onRequestPost(context: PagesContext) {
   const auth = await verifyPatBearerEdge(context.request.headers.get("authorization"), context.env);
   if (!auth.ok || !auth.pat) {
-    return jsonResponse({ error: auth.reason || "Unauthorized" }, 401);
+    return jsonResponse({ error: auth.reason || "Unauthorized" }, 401, true);
   }
 
   const sb = getSupabaseConfig(context.env);
   if (!sb) {
-    return jsonResponse({ error: "Supabase service credentials not configured" }, 500);
+    return jsonResponse({ error: "Supabase service credentials not configured" }, 500, true);
   }
 
   let body: {
@@ -83,12 +102,12 @@ export async function onRequestPost(context: PagesContext) {
   try {
     body = (await context.request.json()) as typeof body;
   } catch {
-    return jsonResponse({ error: "Invalid JSON payload" }, 400);
+    return jsonResponse({ error: "Invalid JSON payload" }, 400, true);
   }
 
   const rawArticles = Array.isArray(body.articles) ? body.articles.slice(0, 60) : [];
   if (rawArticles.length === 0) {
-    return jsonResponse({ error: "Payload must include non-empty articles[]" }, 400);
+    return jsonResponse({ error: "Payload must include non-empty articles[]" }, 400, true);
   }
 
   const rows: Record<string, unknown>[] = [];
@@ -96,16 +115,35 @@ export async function onRequestPost(context: PagesContext) {
 
   for (let idx = 0; idx < rawArticles.length; idx += 1) {
     const item = rawArticles[idx]!;
-    const titleBn = String(item.title_bn || item.title_en || "").trim();
-    const titleEn = String(item.title_en || item.title_bn || "").trim();
-    const sourceUrl = String(item.source_url || "https://factnewsbangladesh.bond");
+    const titleBn = String(item.title_bn || item.title_en || "").trim().slice(0, 320);
+    const titleEn = String(item.title_en || item.title_bn || "").trim().slice(0, 320);
+    if (!titleBn && !titleEn) continue;
+
+    const rawSourceUrl = String(item.source_url || "https://factnewsbangladesh.bond").trim();
+    const sourceUrl = isSafeExternalUrl(rawSourceUrl)
+      ? rawSourceUrl
+      : "https://factnewsbangladesh.bond";
     const slugHash = (await sha256Hex(sourceUrl)).slice(0, 8);
+    const safeCustomSlug = item.slug
+      ? item.slug
+          .toLowerCase()
+          .replace(/[^a-z0-9-]+/g, "-")
+          .replace(/^-|-$/g, "")
+          .slice(0, 80)
+      : "";
     const slug =
-      item.slug?.trim() ||
+      safeCustomSlug ||
       `${titleEn.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "story"}-${slugHash}`;
-    const articleId = item.id || `art_${slugHash}_${idx}`;
-    const summaryBn = String(item.summary_bn || titleBn);
-    const summaryEn = String(item.summary_en || titleEn);
+
+    const articleId = `art_${slugHash}_${idx}`;
+    const category = item.category && ALLOWED_CATEGORIES.has(item.category) ? item.category : "national";
+    const verificationStatus =
+      item.verification_status && ALLOWED_VERIFICATION.has(item.verification_status)
+        ? item.verification_status
+        : "single_source";
+
+    const summaryBn = String(item.summary_bn || titleBn).trim().slice(0, 800);
+    const summaryEn = String(item.summary_en || titleEn).trim().slice(0, 800);
     const imageCdnToken = await buildCdnImageTokenEdge(
       item.image_url,
       context.env.CDN_SIGNING_SECRET,
@@ -115,23 +153,23 @@ export async function onRequestPost(context: PagesContext) {
       id: articleId,
       slug,
       lang: item.lang === "en" ? "en" : "bn",
-      category: item.category || "national",
-      region: item.region || "national",
+      category,
+      region: String(item.region || "national").slice(0, 40),
       title_bn: titleBn,
       title_en: titleEn,
       summary_bn: summaryBn,
       summary_en: summaryEn,
-      body_bn: item.body_bn || summaryBn,
-      body_en: item.body_en || summaryEn,
-      verification_status: item.verification_status || "single_source",
+      body_bn: String(item.body_bn || summaryBn).slice(0, 40000),
+      body_en: String(item.body_en || summaryEn).slice(0, 40000),
+      verification_status: verificationStatus,
       confidence_score: Math.min(100, Math.max(0, Number(item.confidence_score ?? 65))),
       source_count: Math.max(1, Number(item.source_count ?? item.sources?.length ?? 1)),
-      primary_source: String(item.primary_source || "Newsroom Dispatch"),
-      primary_source_bn: String(item.primary_source_bn || item.primary_source || "নিউজরুম"),
+      primary_source: String(item.primary_source || "Newsroom Dispatch").slice(0, 120),
+      primary_source_bn: String(item.primary_source_bn || item.primary_source || "নিউজরুম").slice(0, 120),
       source_url: sourceUrl,
       image_cdn_token: imageCdnToken,
-      image_alt_bn: String(item.image_alt || titleBn),
-      image_alt_en: String(item.image_alt || titleEn),
+      image_alt_bn: String(item.image_alt || titleBn).slice(0, 240),
+      image_alt_en: String(item.image_alt || titleEn).slice(0, 240),
       seo_title_bn: titleBn.slice(0, 60),
       seo_title_en: titleEn.slice(0, 60),
       seo_desc_bn: summaryBn.slice(0, 155),
@@ -142,20 +180,28 @@ export async function onRequestPost(context: PagesContext) {
     });
 
     if (Array.isArray(item.sources)) {
-      for (const s of item.sources) {
-        if (!s.domain || !s.url) continue;
+      const seenDomains = new Set<string>();
+      for (const s of item.sources.slice(0, 10)) {
+        if (!s.domain || !s.url || !isSafeExternalUrl(s.url) || seenDomains.has(s.domain)) {
+          continue;
+        }
+        seenDomains.add(s.domain);
         sourceRows.push({
           article_id: articleId,
           source_id: s.sourceId || null,
-          source_name_en: String(s.nameEn || item.primary_source || s.domain),
-          source_name_bn: String(s.nameBn || item.primary_source_bn || s.domain),
-          source_domain: String(s.domain),
-          original_url: String(s.url),
-          original_headline: String(s.headline || titleBn),
-          tier: Number(s.tier || 2),
+          source_name_en: String(s.nameEn || item.primary_source || s.domain).slice(0, 120),
+          source_name_bn: String(s.nameBn || item.primary_source_bn || s.domain).slice(0, 120),
+          source_domain: String(s.domain).slice(0, 120),
+          original_url: s.url,
+          original_headline: String(s.headline || titleBn).slice(0, 320),
+          tier: Math.min(4, Math.max(1, Number(s.tier || 2))),
         });
       }
     }
+  }
+
+  if (rows.length === 0) {
+    return jsonResponse({ error: "No valid articles in payload" }, 400, true);
   }
 
   const upsertRes = await fetch(`${sb.url}/rest/v1/articles?on_conflict=slug`, {
@@ -170,8 +216,7 @@ export async function onRequestPost(context: PagesContext) {
   });
 
   if (!upsertRes.ok) {
-    const errText = await upsertRes.text();
-    return jsonResponse({ error: `Supabase upsert failed: ${errText}` }, 502);
+    return jsonResponse({ error: "Database ingestion failed" }, 502, true);
   }
 
   if (sourceRows.length > 0) {
@@ -205,21 +250,22 @@ export async function onRequestPost(context: PagesContext) {
   }).catch(() => undefined);
 
   let rebuildTriggered = false;
-  if (
-    context.env.CLOUDFLARE_DEPLOY_HOOK_URL &&
-    body.trigger_rebuild !== false
-  ) {
+  if (context.env.CLOUDFLARE_DEPLOY_HOOK_URL && body.trigger_rebuild !== false) {
     rebuildTriggered = true;
     context.waitUntil(
       fetch(context.env.CLOUDFLARE_DEPLOY_HOOK_URL, { method: "POST" }).catch(() => undefined),
     );
   }
 
-  return jsonResponse({
-    ok: true,
-    upserted: rows.length,
-    backend: "supabase",
-    rebuild_triggered: rebuildTriggered,
-    pat_label: auth.pat.label,
-  });
+  return jsonResponse(
+    {
+      ok: true,
+      upserted: rows.length,
+      backend: "supabase",
+      rebuild_triggered: rebuildTriggered,
+      pat_label: auth.pat.label,
+    },
+    200,
+    true,
+  );
 }

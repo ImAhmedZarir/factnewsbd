@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, ChevronRight, ExternalLink, Printer } from "lucide-react";
 import { CATEGORIES, formatFullDate, formatNewsTime, UI_COPY } from "@/lib/i18n";
+import { safeHttpUrl } from "@/lib/security";
 import type { Article } from "@/lib/types";
 import { AdSlot } from "./ad-slot";
 import { useLanguage } from "./language-provider";
@@ -169,7 +170,7 @@ export function ArticleReader({ article, related, latest }: ArticleReaderProps) 
                 {sources.map((src) => (
                   <a
                     key={src.url}
-                    href={src.url}
+                    href={safeHttpUrl(src.url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex min-h-10 items-center gap-2 rounded-sm border border-border bg-card px-3.5 py-2 text-sm font-semibold text-foreground transition-colors hover:border-primary hover:text-primary"
