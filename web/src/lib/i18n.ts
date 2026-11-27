@@ -49,6 +49,10 @@ export const UI_COPY = {
     publishedLabel: "প্রকাশিত:",
     trendingLabel: "ট্রেন্ডিং:",
     moreNews: "আরও খবর",
+    wireLabel: "সদ্যপ্রাপ্ত",
+    backToTop: "উপরে ফিরুন",
+    minRead: "মিনিট পাঠ",
+    clearSearch: "অনুসন্ধান মুছুন",
   },
   en: {
     searchPlaceholder: "Search news...",
@@ -71,6 +75,10 @@ export const UI_COPY = {
     publishedLabel: "Published:",
     trendingLabel: "Trending:",
     moreNews: "More News",
+    wireLabel: "JUST IN",
+    backToTop: "Back to top",
+    minRead: "min read",
+    clearSearch: "Clear search",
   },
 } as const;
 

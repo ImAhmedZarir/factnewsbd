@@ -2,9 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, TrendingUp } from "lucide-react";
+import { ArrowRight, ChevronUp, Radio, TrendingUp } from "lucide-react";
 import { CATEGORIES, formatNewsTime, toBengaliDigits, UI_COPY } from "@/lib/i18n";
-import { mapSupabaseArticleRow } from "@/lib/supabase-mapper";
 import type { Article, NewsCategory } from "@/lib/types";
 import { AdSlot } from "./ad-slot";
 import { useLanguage } from "./language-provider";
@@ -43,9 +42,17 @@ export function NewsFrontpage({
   const [nextChunkIdx, setNextChunkIdx] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [manifestLoaded, setManifestLoaded] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
 
   const inFlightChunkRef = useRef<number | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onScroll = () => setShowBackToTop(window.scrollY > 700);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   const hasMore = manifestLoaded && nextChunkIdx < chunkUrls.length;
 
@@ -83,19 +90,14 @@ export function NewsFrontpage({
         setChunkUrls(urls);
         setManifestLoaded(true);
 
-        const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
-        const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-        if (sbUrl && anonKey && manifest.latestPublishedAt) {
-          const selectCols =
-            "id,slug,lang,category,region,title_bn,title_en,summary_bn,summary_en,verification_status,confidence_score,source_count,primary_source,primary_source_bn,source_url,image_cdn_token,image_alt_bn,image_alt_en,published_at,is_breaking,article_sources(*)";
+        if (manifest.latestPublishedAt) {
           const deltaRes = await fetch(
-            `${sbUrl}/rest/v1/articles?select=${selectCols}&status=eq.published&published_at=gt.${encodeURIComponent(manifest.latestPublishedAt)}&order=published_at.desc&limit=60`,
-            { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` } },
+            `/api/v1/delta?after=${encodeURIComponent(manifest.latestPublishedAt)}`,
           );
           if (deltaRes.ok && !cancelled) {
-            const rows = (await deltaRes.json()) as Record<string, unknown>[];
-            if (Array.isArray(rows) && rows.length > 0) {
-              mergeArticles(rows.map((r) => mapSupabaseArticleRow(r)));
+            const payload = (await deltaRes.json()) as { articles?: Article[] };
+            if (Array.isArray(payload.articles) && payload.articles.length > 0) {
+              mergeArticles(payload.articles);
             }
           }
         }
@@ -249,6 +251,33 @@ export function NewsFrontpage({
       />
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-4 sm:px-6 lg:px-8">
+        {/* Latest Headline Wire Strip */}
+        {articles.length > 0 && (
+          <div className="mb-3 flex items-center gap-2.5 rounded-sm border border-border bg-card px-3 py-2">
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-sm bg-primary px-2 py-0.5 text-[11px] font-bold tracking-wide text-primary-foreground">
+              <Radio className="size-3 animate-pulse" aria-hidden="true" />
+              <span>{copy.wireLabel}</span>
+            </span>
+            <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-3 overflow-x-auto text-xs">
+              {articles.slice(0, 6).map((item, idx) => (
+                <React.Fragment key={item.id}>
+                  {idx > 0 && (
+                    <span className="shrink-0 text-border" aria-hidden="true">
+                      •
+                    </span>
+                  )}
+                  <Link
+                    href={`/news/${item.slug}`}
+                    className="shrink-0 font-medium text-foreground transition-colors hover:text-primary"
+                  >
+                    {getTitle(item)}
+                  </Link>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Trending Topic Pill Strip (JagoNews24 / Dhaka Post style) */}
         <div className="mb-5 flex items-center gap-2 overflow-x-auto border-b border-border pb-3 no-scrollbar">
           <span className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-primary">
@@ -655,6 +684,18 @@ export function NewsFrontpage({
           </div>
         )}
       </main>
+
+      {showBackToTop && (
+        <button
+          type="button"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          aria-label={copy.backToTop}
+          title={copy.backToTop}
+          className="fixed bottom-5 right-5 z-40 inline-flex size-11 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg transition-all hover:-translate-y-0.5 hover:border-primary hover:text-primary active:scale-95 print:hidden"
+        >
+          <ChevronUp className="size-5" aria-hidden="true" />
+        </button>
+      )}
 
       <SiteFooter />
     </div>

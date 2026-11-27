@@ -135,7 +135,7 @@ export function PatConsoleView() {
               {createdToken && (
                 <div className="rounded-sm border border-success/40 bg-success/10 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <code className="tabular break-all text-xs font-semibold text-foreground">{createdToken}</code>
+                    <code className="tabular block overflow-x-auto whitespace-nowrap text-xs font-semibold text-foreground">{createdToken}</code>
                     <button
                       type="button"
                       onClick={() => handleCopy(createdToken)}

@@ -5,7 +5,7 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Cross-Origin-Opener-Policy: same-origin-allow-popups
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://pagead2.googlesyndication.com https://partner.googleadservices.com https://tpc.googlesyndication.com https://www.googletagservices.com https://adservice.google.com https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://cdn.factnewsbangladesh.bond https://*.googlesyndication.com https://*.doubleclick.net https://*.google.com https://*.gstatic.com; connect-src 'self' https://gyplsfiftndcrqehrxux.supabase.co https://cdn.factnewsbangladesh.bond https://pagead2.googlesyndication.com https://*.doubleclick.net https://ep1.adtrafficquality.google https://*.google; frame-src 'self' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://pagead2.googlesyndication.com https://partner.googleadservices.com https://tpc.googlesyndication.com https://www.googletagservices.com https://adservice.google.com https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://cdn.factnewsbangladesh.bond https://*.googlesyndication.com https://*.doubleclick.net https://*.google.com https://*.gstatic.com; connect-src 'self' https://cdn.factnewsbangladesh.bond https://pagead2.googlesyndication.com https://*.doubleclick.net https://ep1.adtrafficquality.google https://*.google; frame-src 'self' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests
 
 /admin/*
   X-Robots-Tag: noindex, nofollow
@@ -14,6 +14,12 @@
 /api/*
   X-Robots-Tag: noindex, nofollow
   Cache-Control: no-store
+
+/feed/*
+  ! Access-Control-Allow-Origin
+  X-Robots-Tag: noindex, nofollow
+  Cross-Origin-Resource-Policy: same-origin
+  Cache-Control: public, max-age=300, stale-while-revalidate=600
 
 /_next/static/*
   Cache-Control: public, max-age=31536000, immutable

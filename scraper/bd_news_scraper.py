@@ -208,9 +208,11 @@ NOISE_PHRASES = (
 )
 
 PROMO_SENTENCE_RE = re.compile(
-    r"(?:এই\s+(?:ম্যাচের|বিষয়ের|বিষয়ের)\s+সব\s+খবর\s+জানতে\s+চোখ\s+রাখুন[^।!?]*[।!?]?|"
-    r"সর্বশেষ\s+খবর\s+পেতে\s+গুগল\s+নিউজ[^।!?]*[।!?]?|"
-    r"চোখ\s+রাখুন\s+প্রথম\s+আলোতে[।!?]?|"
+    r"(?:[^।!?\n]{0,120}জানতে\s+চোখ\s+রাখুন\s+প্রথম\s+আলো[^।!?\n]*[।!?]?|"
+    r"সর্বশেষ\s+খবর\s+পেতে\s+গুগল\s+নিউজ[^।!?\n]*[।!?]?|"
+    r"চোখ\s+রাখুন\s+প্রথম\s+আলো[^।!?\n]*[।!?]?|"
+    r"দৈনিক\s+ইত্তেফাক\s*\|\s*The Daily Ittefaq is the oldest newspaper[^।.\n]*\.?|"
+    r"The Daily Bonik Barta is a Bangla newspaper[^.\n]*\.?|"
     r"আরও\s+পড়ুন\s*:?[^।!?\n]*$|"
     r"আরও\s+পড়ুন\s*:?[^।!?\n]*$|"
     r"Copyright:\s*Any unauthorized[^.\n]*\.?)",
@@ -223,6 +225,8 @@ GENERIC_DESC_FRAGMENTS = (
     "new age, a dhaka-based",
     "newspaper published from dhaka",
     "latest news of bangladesh",
+    "oldest newspaper of bangladesh",
+    "the daily ittefaq is the",
 )
 
 JS_REQUIRED_DOMAINS = (
@@ -237,14 +241,22 @@ JS_REQUIRED_DOMAINS = (
 def strip_promo_tails(text: str) -> str:
     t = PROMO_SENTENCE_RE.sub("", text)
     t = re.sub(r"^(?:প্রকাশ|Published|আপডেট|Updated)\s*[:：][^\n|]{0,50}\|?\s*", "", t, flags=re.I)
+    t = re.sub(r"\s*https?://\S+", "", t)
+    t = re.sub(r"\.{2,}|…", ".", t) if False else re.sub(r"।\s*।+", "।", t)
+    t = re.sub(r"\.\.+", ".", t)
     t = re.sub(r"\s+", " ", t).strip()
-    if t.endswith("...") or t.endswith("…"):
-        # Truncated RSS preview tail — trim partial last fragment back to last complete sentence if available
-        trimmed = t.rstrip(".… ")
-        last_stop = max(trimmed.rfind("।"), trimmed.rfind("."))
-        if last_stop > len(trimmed) * 0.45:
-            t = trimmed[: last_stop + 1]
-    return t.strip()
+    if t.endswith("...") or t.endswith("…") or t.endswith("."):
+        if t.endswith("...") or t.endswith("…"):
+            trimmed = t.rstrip(".… ")
+            last_stop = max(trimmed.rfind("।"), trimmed.rfind("."))
+            if last_stop > len(trimmed) * 0.4:
+                t = trimmed[: last_stop + 1]
+            else:
+                t = trimmed + "।" if re.search(r"[\u0980-\u09FF]", trimmed) else trimmed + "."
+    t = re.sub(r"\.{2,}", ".", t)
+    t = re.sub(r"।\s*।+", "।", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
 
 
 def clean_text(raw: str | None) -> str:

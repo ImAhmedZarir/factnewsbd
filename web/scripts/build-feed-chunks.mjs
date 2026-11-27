@@ -34,11 +34,10 @@ loadEnvFile(path.join(WEB_DIR, ".env"));
 const CDN_BASE = (
   process.env.NEXT_PUBLIC_CDN_BASE_URL || "https://cdn.factnewsbangladesh.bond"
 ).replace(/\/$/, "");
-const CDN_SECRET =
-  process.env.CDN_SIGNING_SECRET || "bd-factnews-local-cdn-signing-secret-change-me";
+const CDN_SECRET = process.env.CDN_SIGNING_SECRET || "";
 
 function buildLocalCdnUrl(rawUrl) {
-  if (!rawUrl || !/^https?:\/\//i.test(rawUrl)) return null;
+  if (!CDN_SECRET || !rawUrl || !/^https?:\/\//i.test(rawUrl)) return null;
   const payload = Buffer.from(JSON.stringify({ u: rawUrl }), "utf8").toString("base64url");
   const sig = crypto.createHmac("sha256", CDN_SECRET).update(payload).digest("base64url").slice(0, 22);
   return `${CDN_BASE}/i/${payload}.${sig}.webp`;

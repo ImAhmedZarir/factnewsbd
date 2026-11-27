@@ -57,11 +57,19 @@ async function signPayload(payloadB64: string, secret: string): Promise<string> 
   return bytesToBase64Url(new Uint8Array(sig)).slice(0, 22);
 }
 
-function timingSafeEqualStr(a: string, b: string): boolean {
-  if (!a || a.length !== b.length) return false;
+async function sha256Hex(raw: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function timingSafeEqualDigest(a: string, b: string): Promise<boolean> {
+  if (!a || !b) return false;
+  const [ha, hb] = await Promise.all([sha256Hex(a), sha256Hex(b)]);
   let diff = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  for (let i = 0; i < ha.length; i += 1) {
+    diff |= ha.charCodeAt(i) ^ hb.charCodeAt(i);
   }
   return diff === 0;
 }
@@ -137,7 +145,10 @@ async function fetchSafeImage(initialUrl: string): Promise<{ ok: true; contentTy
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") {
-      return new Response("Method Not Allowed", { status: 405 });
+      return new Response("Method Not Allowed", {
+        status: 405,
+        headers: { "X-Content-Type-Options": "nosniff" },
+      });
     }
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/i/")) {
@@ -147,16 +158,29 @@ export default {
       });
     }
 
+    const secret = env.CDN_SIGNING_SECRET;
+    if (!secret || secret.length < 16) {
+      return new Response("CDN signing secret misconfigured", {
+        status: 503,
+        headers: { "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store" },
+      });
+    }
+
     const tokenPart = url.pathname.slice(3).replace(/\.(webp|jpg|jpeg|png)$/i, "");
     const [payloadB64, sig] = tokenPart.split(".");
     if (!payloadB64 || !sig) {
-      return new Response("Invalid CDN token", { status: 400 });
+      return new Response("Invalid CDN token", {
+        status: 400,
+        headers: { "X-Content-Type-Options": "nosniff" },
+      });
     }
 
-    const secret = env.CDN_SIGNING_SECRET || "bd-factnews-local-cdn-signing-secret-change-me";
     const expectedSig = await signPayload(payloadB64, secret);
-    if (!timingSafeEqualStr(sig, expectedSig)) {
-      return new Response("Forbidden: signature mismatch", { status: 403 });
+    if (!(await timingSafeEqualDigest(sig, expectedSig))) {
+      return new Response("Forbidden: signature mismatch", {
+        status: 403,
+        headers: { "X-Content-Type-Options": "nosniff" },
+      });
     }
 
     let targetUrl = "";

@@ -185,7 +185,10 @@ export async function onRequestPost(context: PagesContext) {
       seo_desc_en: summaryEn.slice(0, 155),
       status: "published",
       is_breaking: Boolean(item.is_breaking),
-      published_at: item.published_at || new Date().toISOString(),
+      published_at:
+        item.published_at && !Number.isNaN(Date.parse(item.published_at))
+          ? new Date(item.published_at).toISOString()
+          : new Date().toISOString(),
     });
 
     if (Array.isArray(item.sources)) {
@@ -331,7 +334,9 @@ export async function onRequestPost(context: PagesContext) {
       Prefer: "return=minimal",
     },
     body: JSON.stringify({
-      pat_id: auth.pat.id.startsWith("pat_") ? null : auth.pat.id,
+      pat_id: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(auth.pat.id)
+        ? auth.pat.id
+        : null,
       pat_label: auth.pat.label,
       articles_upserted: rows.length,
       sources_scanned: Number(body.source_report?.working_sources ?? 0),

@@ -1,4 +1,12 @@
+import type { Metadata } from "next";
 import { PolicyPageShell } from "@/components/policy-page-shell";
+
+export const metadata: Metadata = {
+  title: "গোপনীয়তা নীতি | Privacy Policy — ফ্যাক্টনিউজ বাংলাদেশ",
+  description:
+    "ফ্যাক্টনিউজ বাংলাদেশের পাঠক গোপনীয়তা নীতি, কুকি ও স্থানীয় ব্রাউজার সংরক্ষণ এবং বিজ্ঞাপন নীতিমালা।",
+  alternates: { canonical: "/privacy" },
+};
 
 export default function PrivacyPage() {
   return (

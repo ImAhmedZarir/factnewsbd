@@ -17,7 +17,7 @@ export function SiteFooter() {
   const brand = SITE_BRAND[lang];
 
   return (
-    <footer className="mt-12 border-t-2 border-primary bg-card">
+    <footer className="mt-12 border-t-2 border-primary bg-card print:hidden">
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-8 md:grid-cols-12">
           <div className="md:col-span-5">

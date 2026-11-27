@@ -2,8 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ChevronRight, ExternalLink, Printer } from "lucide-react";
-import { CATEGORIES, formatFullDate, formatNewsTime, UI_COPY } from "@/lib/i18n";
+import { CheckCircle2, ChevronRight, Clock, ExternalLink, Printer } from "lucide-react";
+import { CATEGORIES, formatFullDate, formatNewsTime, toBengaliDigits, UI_COPY } from "@/lib/i18n";
 import { safeHttpUrl } from "@/lib/security";
 import type { Article } from "@/lib/types";
 import { AdSlot } from "./ad-slot";
@@ -35,6 +35,9 @@ export function ArticleReader({ article, related, latest }: ArticleReaderProps) 
     .split(/\n{2,}/)
     .map((p) => p.trim())
     .filter(Boolean);
+  const wordCount = fullBody.trim() ? fullBody.trim().split(/\s+/).length : 0;
+  const readMins = Math.max(1, Math.round(wordCount / 180));
+  const readTimeLabel = `${lang === "bn" ? toBengaliDigits(readMins) : String(readMins)} ${copy.minRead}`;
 
   const catMeta = CATEGORIES.find((c) => c.id === article.category);
   const catLabel = catMeta ? (lang === "bn" ? catMeta.bn : catMeta.en) : article.category;
@@ -63,7 +66,7 @@ export function ArticleReader({ article, related, latest }: ArticleReaderProps) 
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
         {/* Breadcrumb */}
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3 print:hidden">
           <div className="flex items-center gap-1.5 text-xs font-semibold">
             <Link href="/" className="text-muted-foreground hover:text-primary">
               {copy.backHome}
@@ -112,16 +115,21 @@ export function ArticleReader({ article, related, latest }: ArticleReaderProps) 
             </p>
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-              <div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="font-bold text-foreground">{copy.newsDesk}</span>
-                <span className="mx-2">•</span>
+                <span>•</span>
                 <span className="tabular">
                   {copy.publishedLabel} {formatFullDate(article.published_at, lang)}
+                </span>
+                <span>•</span>
+                <span className="inline-flex items-center gap-1 tabular font-medium text-foreground">
+                  <Clock className="size-3.5 text-primary" aria-hidden="true" />
+                  <span>{readTimeLabel}</span>
                 </span>
               </div>
             </div>
 
-            <div className="mt-4">
+            <div className="mt-4 print:hidden">
               <ShareBar title={title} urlPath={`/news/${article.slug}`} lang={lang} />
             </div>
 
@@ -147,7 +155,7 @@ export function ArticleReader({ article, related, latest }: ArticleReaderProps) 
               ))}
             </div>
 
-            <div className="my-6">
+            <div className="my-6 print:hidden">
               <AdSlot slot="in-article" />
             </div>
 
@@ -184,7 +192,7 @@ export function ArticleReader({ article, related, latest }: ArticleReaderProps) 
 
             {/* Related Articles */}
             {related.length > 0 && (
-              <section className="mt-10 border-t border-border pt-6">
+              <section className="mt-10 border-t border-border pt-6 print:hidden">
                 <h2 className="mb-4 font-display text-xl font-bold text-foreground">
                   {copy.relatedStories}
                 </h2>
@@ -211,7 +219,7 @@ export function ArticleReader({ article, related, latest }: ArticleReaderProps) 
           </article>
 
           {/* Right Sidebar (4 cols) */}
-          <aside className="space-y-6 lg:col-span-4 lg:border-l lg:border-border lg:pl-6">
+          <aside className="space-y-6 lg:col-span-4 lg:border-l lg:border-border lg:pl-6 print:hidden">
             <div>
               <h2 className="border-b-2 border-primary pb-2 font-display text-lg font-bold text-foreground">
                 {copy.latestTab}

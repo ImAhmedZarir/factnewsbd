@@ -5,7 +5,6 @@ import Link from "next/link";
 import { ArticleReader } from "@/components/article-reader";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { mapSupabaseArticleRow } from "@/lib/supabase-mapper";
 import type { Article } from "@/lib/types";
 
 export default function NotFoundPage() {
@@ -16,40 +15,21 @@ export default function NotFoundPage() {
   useEffect(() => {
     const pathname = window.location.pathname.replace(/\/+$/, "");
     const match = pathname.match(/^\/news\/([a-z0-9-]+)$/i);
-    const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    const cdnBase = (
-      process.env.NEXT_PUBLIC_CDN_BASE_URL || "https://cdn.factnewsbangladesh.bond"
-    ).replace(/\/$/, "");
-
-    if (!match || !sbUrl || !anonKey) {
+    if (!match) {
       setState("missing");
       return;
     }
 
     const slug = match[1]!;
-    Promise.all([
-      fetch(
-        `${sbUrl}/rest/v1/articles?select=*,article_sources(*)&slug=eq.${encodeURIComponent(slug)}&status=eq.published&limit=1`,
-        { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` } },
-      ).then((r) => (r.ok ? r.json() : [])),
-      fetch(
-        `${sbUrl}/rest/v1/articles?select=*,article_sources(*)&status=eq.published&order=published_at.desc&limit=12`,
-        { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` } },
-      ).then((r) => (r.ok ? r.json() : [])),
-    ])
-      .then(([rows, latestRows]) => {
-        const list = Array.isArray(rows) ? rows : [];
-        if (list.length === 0) {
+    fetch(`/api/v1/article?slug=${encodeURIComponent(slug)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { article?: Article | null; latest?: Article[] } | null) => {
+        if (!data?.article) {
           setState("missing");
           return;
         }
-        const art = mapSupabaseArticleRow(list[0] as Record<string, unknown>, cdnBase);
-        const latestList = (Array.isArray(latestRows) ? latestRows : []).map((r) =>
-          mapSupabaseArticleRow(r as Record<string, unknown>, cdnBase),
-        );
-        setArticle(art);
-        setLatest(latestList.filter((l) => l.slug !== art.slug));
+        setArticle(data.article);
+        setLatest(Array.isArray(data.latest) ? data.latest : []);
         setState("found");
       })
       .catch(() => setState("missing"));

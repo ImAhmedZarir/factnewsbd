@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
 
-const CDN_SECRET =
-  process.env.CDN_SIGNING_SECRET || "bd-factnews-local-cdn-signing-secret-change-me";
+const CDN_SECRET = process.env.CDN_SIGNING_SECRET || "";
 
 function toBase64Url(input: Buffer | string): string {
   const buf = typeof input === "string" ? Buffer.from(input, "utf8") : input;
@@ -63,7 +62,7 @@ function signPayload(payloadB64: string): string {
  * are never exposed in <img src> or HTML markup.
  */
 export function buildCdnImageToken(rawImageUrl: string | null | undefined): string | null {
-  if (!rawImageUrl || !isSafeExternalImageUrl(rawImageUrl)) return null;
+  if (!CDN_SECRET || !rawImageUrl || !isSafeExternalImageUrl(rawImageUrl)) return null;
   const payloadB64 = toBase64Url(JSON.stringify({ u: rawImageUrl }));
   const sig = signPayload(payloadB64);
   return `${payloadB64}.${sig}`;
@@ -81,6 +80,7 @@ export function buildCdnImageUrl(rawImageUrl: string | null | undefined): string
 }
 
 export function verifyCdnImageToken(token: string): string | null {
+  if (!CDN_SECRET) return null;
   const clean = token.replace(/\.(webp|jpg|jpeg|png)$/i, "");
   const [payloadB64, sig] = clean.split(".");
   if (!payloadB64 || !sig) return null;

@@ -1,4 +1,12 @@
+import type { Metadata } from "next";
 import { PolicyPageShell } from "@/components/policy-page-shell";
+
+export const metadata: Metadata = {
+  title: "আমাদের সম্পর্কে | About Us — ফ্যাক্টনিউজ বাংলাদেশ",
+  description:
+    "ফ্যাক্টনিউজ বাংলাদেশ একটি স্বাধীন বাংলা ও ইংরেজি ডিজিটাল সংবাদমাধ্যম। আমাদের লক্ষ্য, সম্পাদকীয় নীতি ও যাচাইকৃত সংবাদ মানদণ্ড সম্পর্কে জানুন।",
+  alternates: { canonical: "/about" },
+};
 
 export default function AboutPage() {
   return (

@@ -22,7 +22,6 @@ export interface PagesContext<E = PagesEnv> {
   next: () => Promise<Response>;
 }
 
-const DEFAULT_CDN_SECRET = "bd-factnews-local-cdn-signing-secret-change-me";
 const ALLOWED_RASTER_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
@@ -30,8 +29,6 @@ const ALLOWED_RASTER_TYPES = new Set([
   "image/webp",
   "image/avif",
   "image/gif",
-  "image/x-icon",
-  "image/vnd.microsoft.icon",
 ]);
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -39,6 +36,8 @@ export function jsonResponse(body: unknown, status = 200, noStore = false): Resp
   const headers: Record<string, string> = {
     "Content-Type": "application/json; charset=utf-8",
     "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-Robots-Tag": "noindex, nofollow",
   };
   if (noStore) {
     headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
@@ -76,6 +75,16 @@ export async function sha256Hex(raw: string): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+export async function timingSafeEqualDigest(a: string, b: string): Promise<boolean> {
+  if (!a || !b) return false;
+  const [ha, hb] = await Promise.all([sha256Hex(a), sha256Hex(b)]);
+  let diff = 0;
+  for (let i = 0; i < ha.length; i += 1) {
+    diff |= ha.charCodeAt(i) ^ hb.charCodeAt(i);
+  }
+  return diff === 0;
 }
 
 export function timingSafeEqualStr(a: string, b: string): boolean {
@@ -173,7 +182,7 @@ export async function fetchSafeExternalImage(
 export async function signCdnPayload(payloadB64: string, secret: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(secret || DEFAULT_CDN_SECRET),
+    new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
@@ -186,9 +195,10 @@ export async function buildCdnImageTokenEdge(
   rawUrl: string | null | undefined,
   secret?: string,
 ): Promise<string | null> {
+  if (!secret || secret.length < 16) return null;
   if (!rawUrl || !isSafeExternalUrl(rawUrl)) return null;
   const payloadB64 = stringToBase64Url(JSON.stringify({ u: rawUrl }));
-  const sig = await signCdnPayload(payloadB64, secret || DEFAULT_CDN_SECRET);
+  const sig = await signCdnPayload(payloadB64, secret);
   return `${payloadB64}.${sig}`;
 }
 
@@ -196,12 +206,13 @@ export async function verifyCdnImageTokenEdge(
   token: string,
   secret?: string,
 ): Promise<string | null> {
+  if (!secret || secret.length < 16) return null;
   const clean = token.replace(/\.(webp|jpg|jpeg|png)$/i, "");
   const [payloadB64, sig] = clean.split(".");
   if (!payloadB64 || !sig) return null;
 
-  const expected = await signCdnPayload(payloadB64, secret || DEFAULT_CDN_SECRET);
-  if (!timingSafeEqualStr(sig, expected)) return null;
+  const expected = await signCdnPayload(payloadB64, secret);
+  if (!(await timingSafeEqualDigest(sig, expected))) return null;
 
   try {
     const parsed = JSON.parse(base64UrlToString(payloadB64)) as { u?: string };
@@ -231,7 +242,7 @@ export async function verifyPatBearerEdge(
 
   const incomingHash = await sha256Hex(rawToken);
 
-  if (env.INGEST_PAT_SECRET) {
+  if (env.INGEST_PAT_SECRET && env.INGEST_PAT_SECRET.length >= 24) {
     const envHash = await sha256Hex(env.INGEST_PAT_SECRET);
     if (timingSafeEqualStr(incomingHash, envHash)) {
       return { ok: true, pat: { id: "pat_env_master", label: "Env Master Agent PAT" } };
@@ -240,7 +251,7 @@ export async function verifyPatBearerEdge(
 
   const sb = getSupabaseConfig(env);
   if (sb) {
-    const queryUrl = `${sb.url}/rest/v1/pat_tokens?select=id,label&token_hash=eq.${incomingHash}&is_active=eq.true&limit=1`;
+    const queryUrl = `${sb.url}/rest/v1/pat_tokens?select=id,label,scopes,expires_at&token_hash=eq.${incomingHash}&is_active=eq.true&limit=1`;
     const res = await fetch(queryUrl, {
       headers: {
         apikey: sb.serviceKey,
@@ -248,9 +259,21 @@ export async function verifyPatBearerEdge(
       },
     });
     if (res.ok) {
-      const rows = (await res.json()) as Array<{ id: string; label: string }>;
+      const rows = (await res.json()) as Array<{
+        id: string;
+        label: string;
+        scopes?: string[];
+        expires_at?: string | null;
+      }>;
       const match = rows[0];
       if (match) {
+        if (match.expires_at && Date.parse(match.expires_at) <= Date.now()) {
+          return { ok: false, reason: "PAT expired" };
+        }
+        const scopes = Array.isArray(match.scopes) ? match.scopes : [];
+        if (scopes.length > 0 && !scopes.includes("news:write")) {
+          return { ok: false, reason: "PAT lacks news:write scope" };
+        }
         await fetch(`${sb.url}/rest/v1/pat_tokens?id=eq.${encodeURIComponent(match.id)}`, {
           method: "PATCH",
           headers: {

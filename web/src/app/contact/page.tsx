@@ -1,4 +1,12 @@
+import type { Metadata } from "next";
 import { PolicyPageShell } from "@/components/policy-page-shell";
+
+export const metadata: Metadata = {
+  title: "যোগাযোগ ও সংশোধনী ডেস্ক | Contact Us — ফ্যাক্টনিউজ বাংলাদেশ",
+  description:
+    "সংবাদ সংশোধনী, নতুন সংবাদমাধ্যম সংযুক্তি, বিজ্ঞাপন বা সম্পাদকীয় যোগাযোগের জন্য ফ্যাক্টনিউজ বাংলাদেশের সাথে ইমেইলে যোগাযোগ করুন।",
+  alternates: { canonical: "/contact" },
+};
 
 export default function ContactPage() {
   return (
