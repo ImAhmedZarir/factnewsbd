@@ -1,7 +1,7 @@
 import { NewsFrontpage } from "@/components/news-frontpage";
 import { getArticles } from "@/lib/store";
 
-export const revalidate = 120;
+export const dynamic = "force-static";
 
 export default async function HomePage() {
   const articles = await getArticles(60);

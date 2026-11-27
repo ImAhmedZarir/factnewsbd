@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArticleReader } from "@/components/article-reader";
 import { getArticleBySlug, getArticles } from "@/lib/store";
 
-export const revalidate = 300;
+export const dynamic = "force-static";
 
 export async function generateStaticParams() {
   const articles = await getArticles(52);

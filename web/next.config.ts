@@ -1,26 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "export",
   images: {
-    // Route all images through our signed Image CDN wrapper (/api/cdn/image or external Cloudflare Worker)
-    // so Cloudflare Pages / Workers incur zero Next image optimization overhead.
+    // Route all images through signed Edge Image CDN (/api/cdn/image or cdn.factnewsbangladesh.bond)
+    // so Cloudflare Pages incurs zero external image optimizer overhead and unlimited static bandwidth.
     unoptimized: true,
   },
   poweredByHeader: false,
-  headers: async () => [
-    {
-      source: "/(.*)",
-      headers: [
-        { key: "X-Content-Type-Options", value: "nosniff" },
-        { key: "X-Frame-Options", value: "SAMEORIGIN" },
-        { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-        {
-          key: "Permissions-Policy",
-          value: "camera=(), microphone=(), geolocation=()",
-        },
-      ],
-    },
-  ],
 };
 
 export default nextConfig;

@@ -1,98 +1,85 @@
-# Cloudflare + Supabase Deployment Guide — FactNews Bangladesh (`factnewsbangladesh.bond`)
+# Cloudflare Pages + Supabase Deployment Guide — FactNews Bangladesh (`factnewsbangladesh.bond`)
 
-## 0. Domain & Hosting Clarification (Pages vs Workers + Static Assets)
+## 1. Architecture Designed for Maximum Scale & Unlimited Free Bandwidth
 
-Both Cloudflare hosting modes give you **Unlimited Free Bandwidth** on Cloudflare's global CDN:
-
-| Mode | Bandwidth | Daily Free Limit | When Breaking News Updates Appear | Current Repo Status |
-|---|---|---|---|---|
-| **A. Cloudflare Workers + Assets (OpenNext)** | Unlimited | 100,000 Worker reqs/day (static `.open-next/assets` served directly at Edge) | **Instant ISR** via `POST /api/v1/ingest` (`revalidatePath`) — zero rebuild delay | **Pre-configured** (`web/wrangler.jsonc`, `web/open-next.config.mjs`) |
-| **B. Pure Cloudflare Pages (Static Export)** | Unlimited | Unlimited static HTML page views (Functions limit: 100k reqs/day only on API/CDN) | Rebuilds via Cloudflare Pages **Deploy Hook** (~45s) on each push | Ask assistant `"Pages Static Export করো"` to switch `web/` to `output: 'export'` + `functions/` |
-
-> **Recommendation:** If you expect high traffic bursts on breaking news and want `0` daily request limits for readers on static pages, Pure Cloudflare Pages (**Mode B**) + Deploy Hook is ideal. If you push news every few minutes and want instant updates without rebuilding 60+ HTML files each time, **Mode A (OpenNext Workers + Static Assets)** is ready to deploy immediately.
+- **Main News Site (`web/`, Pure Cloudflare Pages `output: "export"` + Edge `functions/`):**
+  - Every news page (`/`, `/news/[slug]`, `/about`, `/contact`, `/privacy`, `/terms`, `sitemap.xml`, `robots.txt`) compiles to **pure static HTML + JS + CSS** inside `web/out/`.
+  - **Unlimited Free Bandwidth & Unlimited Reader Page Views:** Normal readers hit Cloudflare's 300+ global edge POPs directly — **0 Worker requests and 0 Supabase database calls per reader view**, handling massive traffic spikes seamlessly.
+  - **Edge APIs (`web/functions/api/`):**
+    - `POST /api/v1/ingest` — Validates SHA-256 Bearer PAT, signs image tokens, upserts articles + sources into Supabase, and triggers `CLOUDFLARE_DEPLOY_HOOK_URL` to rebuild fresh static HTML automatically.
+    - `GET /api/cdn/image?t=...` — Verifies HMAC-SHA256 image token, strips referrer headers, and caches publisher images in Cloudflare Edge Cache (`caches.default`).
+    - `GET /api/health` — Deployment status check.
+- **Optional Standalone Image CDN Worker (`cdn-worker/`):**
+  - Deploy to `cdn.factnewsbangladesh.bond` and enable a Cloudflare **Cache Rule ("Cache Everything")** on `cdn.factnewsbangladesh.bond/i/*` so repeat image loads serve directly from edge cache.
+- **Supabase PostgreSQL (`supabase/FULL_SETUP_ONE_CLICK.sql`):**
+  - Text-only database with explicit table `GRANT`s + strict Read-Only RLS (`anon` can only `SELECT` published articles).
 
 ---
 
 ## Step 1 — One-Click Supabase Setup (`supabase/FULL_SETUP_ONE_CLICK.sql`)
 
-1. Create a free project on [Supabase](https://supabase.com).
-2. Go to **SQL Editor -> New query**.
-3. Open [`supabase/FULL_SETUP_ONE_CLICK.sql`](./supabase/FULL_SETUP_ONE_CLICK.sql), copy the **entire file**, paste it once, and click **Run**.
-   *(Combines schema, triggers, strict read-only RLS, security revokes, and 30 Bangladeshi newspaper + fact-check sources in one idempotent run.)*
-4. Copy from **Project Settings -> API**:
-   - **Project URL** (`https://<ref>.supabase.co`)
-   - **anon public** key
-   - **service_role** secret key *(never expose this publicly)*
+1. Open Supabase Dashboard → **SQL Editor → New query**.
+2. Paste the entire contents of [`supabase/FULL_SETUP_ONE_CLICK.sql`](./supabase/FULL_SETUP_ONE_CLICK.sql) and click **Run**.
+   *(Creates schema, explicit `GRANT` privileges, triggers, Read-Only RLS policies, and 30 Bangladeshi news sources idempotently.)*
+3. Copy **Project URL**, **anon public** key, and **service_role** key from **Project Settings → API**.
 
 ---
 
-## Step 2 — Generate Secrets & Agent PAT (Local Terminal)
+## Step 2 — Local Build & Secrets (`web/.env.local`)
+
+Copy `web/.env.example` to `web/.env.local` (never commit `.env.local`) and fill in Supabase keys + secrets, then generate an ingestion PAT:
 
 ```powershell
 cd web
-# Generate a strong 32+ char CDN secret (example using Node):
-node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
-
-# Generate your Agent Push PAT (`news_pat_...`):
-node scripts/manage_pat.mjs create "Daily Agency Scraper"
+node scripts/manage_pat.mjs create "Daily BD Scraper"
+npm run build
 ```
-> Copy the `news_pat_...` token once and save it safely — you will use it to push verified articles.
 
 ---
 
-## Step 3 — Deploy Image CDN Worker (`cdn.factnewsbangladesh.bond`)
+## Step 3 — Deploy Pure Cloudflare Pages (`factnewsbangladesh.bond`)
 
 ```powershell
-cd cdn-worker
+cd web
 npx wrangler login
-npx wrangler secret put CDN_SIGNING_SECRET   # paste your 32+ char secret from Step 2
-npx wrangler deploy
-```
-In Cloudflare Dashboard -> **Workers & Pages -> `bd-factnews-cdn` -> Settings -> Domains & Routes -> Add -> Custom Domain**:
-- Add: `cdn.factnewsbangladesh.bond` *(Cloudflare auto-configures DNS SSL if your domain nameservers are on Cloudflare).*
-
----
-
-## Step 4 — Deploy Main News Website (`factnewsbangladesh.bond`)
-
-```powershell
-cd web
-npm install -D @opennextjs/cloudflare wrangler
-npx opennextjs-cloudflare build
-npx wrangler deploy
+npx wrangler pages project create factnews-bangladesh --production-branch main
+npx wrangler pages deploy out --project-name factnews-bangladesh
 ```
 
-Set these **Environment Variables & Secrets** in Cloudflare Dashboard -> **Workers & Pages -> `factnews-bangladesh` -> Settings -> Variables and Secrets** *(or via `npx wrangler secret put <KEY>`)*:
+Add **Secrets & Env Vars** in Cloudflare Dashboard → **Workers & Pages → `factnews-bangladesh` → Settings → Variables and Secrets**:
 
 | Variable | Value |
 |---|---|
 | `NEXT_PUBLIC_SITE_URL` | `https://factnewsbangladesh.bond` |
-| `NEXT_PUBLIC_CDN_BASE_URL` | `https://cdn.factnewsbangladesh.bond` *(or omit to use built-in `/api/cdn/image`)* |
+| `NEXT_PUBLIC_CDN_BASE_URL` | `https://cdn.factnewsbangladesh.bond` *(or omit to use `/api/cdn/image`)* |
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://<ref>.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `<your supabase anon public key>` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `<supabase anon key>` |
 | `SUPABASE_URL` | `https://<ref>.supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY` | `<your supabase service_role key>` |
-| `CDN_SIGNING_SECRET` | `<same secret used in cdn-worker>` |
-| `INGEST_PAT_SECRET` | `<your news_pat_... token from Step 2>` |
-| `ADMIN_CONSOLE_SECRET` | `<random 24+ char admin secret>` |
+| `SUPABASE_SERVICE_ROLE_KEY` | `<supabase service_role key>` |
+| `CDN_SIGNING_SECRET` | `<32+ char random secret>` |
+| `INGEST_PAT_SECRET` | `<your news_pat_... token>` |
+| `CLOUDFLARE_DEPLOY_HOOK_URL` | `<Cloudflare Pages -> Settings -> Builds & deployments -> Deploy hooks>` |
 
-Then bind your domain:
-- **Cloudflare Dashboard -> Workers & Pages -> `factnews-bangladesh` -> Settings -> Domains & Routes -> Add -> Custom Domain**:
-  - `factnewsbangladesh.bond`
-  - `www.factnewsbangladesh.bond`
+Then go to **Custom domains → Set up a custom domain** and bind:
+- `factnewsbangladesh.bond`
+- `www.factnewsbangladesh.bond`
 
 ---
 
-## Step 5 — Push Live News Daily via Scraper Agent
+## Step 4 — Optional Dedicated Image CDN (`cdn.factnewsbangladesh.bond`)
+
+```powershell
+cd cdn-worker
+npx wrangler secret put CDN_SIGNING_SECRET   # exact same secret as above
+npx wrangler deploy
+```
+
+Bind custom domain `cdn.factnewsbangladesh.bond` in **Workers & Pages → `bd-factnews-cdn` → Settings → Domains & Routes**.
+
+---
+
+## Step 5 — Push Fresh Verified News Daily
 
 ```powershell
 python scraper/bd_news_scraper.py --push-url https://factnewsbangladesh.bond/api/v1/ingest --pat <YOUR_NEWS_PAT>
 ```
-
----
-
-## Want the AI Agent to Deploy Automatically?
-
-Instead of manually typing commands, share **only scoped, revocable** credentials (never share your main Cloudflare/Supabase login passwords):
-1. **Cloudflare:** Run `npx wrangler login` once in browser **OR** create a scoped **Cloudflare API Token** (`Workers Scripts: Edit`, `Cloudflare Pages: Edit`, `Zone -> DNS: Edit` for `factnewsbangladesh.bond`).
-2. **Supabase:** Share your `Project URL`, `anon` key, `service_role` key *(and optionally the Postgres URI / Access Token only if you want us to push SQL from CLI instead of clicking Run once in SQL Editor)*.

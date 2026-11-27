@@ -1,5 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
-import { verifyCdnImageToken } from "@/lib/cdn";
+import { jsonResponse, verifyCdnImageTokenEdge, type PagesContext } from "../../lib/cf-edge";
 
 const FALLBACK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
   <defs>
@@ -14,17 +13,23 @@ const FALLBACK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" heigh
   <text x="600" y="366" text-anchor="middle" font-family="system-ui, sans-serif" font-size="17" fill="#94a3b8">Verified Multi-Source Dispatch</text>
 </svg>`;
 
-export const runtime = "nodejs";
-
-export async function GET(request: NextRequest) {
-  const token = request.nextUrl.searchParams.get("t");
+export async function onRequestGet(context: PagesContext) {
+  const url = new URL(context.request.url);
+  const token = url.searchParams.get("t");
   if (!token) {
-    return NextResponse.json({ error: "Missing CDN image token" }, { status: 400 });
+    return jsonResponse({ error: "Missing CDN image token" }, 400);
   }
 
-  const targetUrl = verifyCdnImageToken(token);
+  const targetUrl = await verifyCdnImageTokenEdge(token, context.env.CDN_SIGNING_SECRET);
   if (!targetUrl) {
-    return NextResponse.json({ error: "Invalid or tampered CDN token" }, { status: 403 });
+    return jsonResponse({ error: "Invalid or tampered CDN token" }, 403);
+  }
+
+  const edgeCache = (globalThis as unknown as { caches?: { default?: Cache } }).caches?.default;
+  const cacheKey = new Request(url.toString(), { method: "GET" });
+  if (edgeCache) {
+    const cached = await edgeCache.match(cacheKey);
+    if (cached) return cached;
   }
 
   try {
@@ -41,7 +46,7 @@ export async function GET(request: NextRequest) {
 
     const contentType = upstream.headers.get("content-type") || "";
     if (!upstream.ok || !contentType.startsWith("image/")) {
-      return new NextResponse(FALLBACK_SVG, {
+      return new Response(FALLBACK_SVG, {
         status: 200,
         headers: {
           "Content-Type": "image/svg+xml; charset=utf-8",
@@ -51,8 +56,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const buffer = await upstream.arrayBuffer();
-    return new NextResponse(buffer, {
+    const response = new Response(upstream.body, {
       status: 200,
       headers: {
         "Content-Type": contentType,
@@ -61,8 +65,12 @@ export async function GET(request: NextRequest) {
         "X-Content-Type-Options": "nosniff",
       },
     });
+    if (edgeCache) {
+      context.waitUntil(edgeCache.put(cacheKey, response.clone()));
+    }
+    return response;
   } catch {
-    return new NextResponse(FALLBACK_SVG, {
+    return new Response(FALLBACK_SVG, {
       status: 200,
       headers: {
         "Content-Type": "image/svg+xml; charset=utf-8",

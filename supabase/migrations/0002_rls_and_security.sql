@@ -41,6 +41,21 @@ create policy "public_read_fact_checks"
   to anon, authenticated
   using (true);
 
+-- Explicit table privileges for Supabase roles (PostgreSQL requires GRANT + RLS)
+grant usage on schema public to anon, authenticated, service_role;
+
+grant select on public.sources to anon, authenticated;
+grant select on public.articles to anon, authenticated;
+grant select on public.article_sources to anon, authenticated;
+grant select on public.fact_checks to anon, authenticated;
+
+grant all privileges on public.sources to service_role;
+grant all privileges on public.articles to service_role;
+grant all privileges on public.article_sources to service_role;
+grant all privileges on public.fact_checks to service_role;
+grant all privileges on public.pat_tokens to service_role;
+grant all privileges on public.ingest_logs to service_role;
+
 -- Explicitly deny public read/write on PAT tokens and ingest logs
 -- (Only service_role bypasses RLS; zero anon/authenticated policies created)
 revoke all on public.pat_tokens from anon, authenticated;

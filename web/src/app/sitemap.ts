@@ -1,6 +1,8 @@
 import type { MetadataRoute } from "next";
 import { getArticles } from "@/lib/store";
 
+export const dynamic = "force-static";
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://factnewsbangladesh.bond").replace(/\/$/, "");
   const articles = await getArticles(100);
