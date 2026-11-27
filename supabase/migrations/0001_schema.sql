@@ -30,7 +30,7 @@ create table if not exists public.articles (
   lang text not null default 'bn' check (lang in ('bn', 'en')),
   category text not null check (category in (
     'national', 'politics', 'economy', 'international',
-    'tech', 'sports', 'regional', 'factcheck'
+    'tech', 'sports', 'entertainment', 'regional', 'factcheck'
   )),
   region text not null default 'national',
 

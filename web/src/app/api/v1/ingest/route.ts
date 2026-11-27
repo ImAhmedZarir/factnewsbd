@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
   const normalized: Article[] = rawArticles.slice(0, 60).map((item, idx) => {
     const titleBn = String(item.title_bn || item.title_en || "").trim();
     const titleEn = String(item.title_en || item.title_bn || "").trim();
-    const sourceUrl = String(item.source_url || "https://factnewsbd.com");
+    const sourceUrl = String(item.source_url || "https://factnewsbangladesh.bond");
     const slugHash = crypto.createHash("sha1").update(sourceUrl).digest("hex").slice(0, 8);
     const slug =
       item.slug?.trim() ||

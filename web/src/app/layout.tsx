@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   },
   description:
     "FactNews Bangladesh — Independent bilingual digital newspaper delivering verified national, economic, political, sports, and international news from Bangladesh.",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://127.0.0.1:3000"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://factnewsbangladesh.bond"),
   openGraph: {
     type: "website",
     siteName: "FactNews Bangladesh",

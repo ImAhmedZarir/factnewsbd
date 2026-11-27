@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 import { getArticles } from "@/lib/store";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
+  const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://factnewsbangladesh.bond").replace(/\/$/, "");
   const articles = await getArticles(100);
 
   const staticRoutes: MetadataRoute.Sitemap = [
