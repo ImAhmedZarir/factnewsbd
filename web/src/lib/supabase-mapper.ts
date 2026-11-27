@@ -1,5 +1,13 @@
 import type { Article } from "./types";
 
+export function toFeedCardArticle(article: Article): Article {
+  const { body_bn: _bBn, body_en: _bEn, ...rest } = article;
+  return {
+    ...rest,
+    image_url: null,
+  };
+}
+
 export function mapSupabaseArticleRow(
   row: Record<string, unknown>,
   cdnBaseOverride?: string,
@@ -29,7 +37,7 @@ export function mapSupabaseArticleRow(
       }))
     : [];
 
-  return {
+  const mapped: Article = {
     id: String(row.id),
     slug: String(row.slug),
     lang: (row.lang as "bn" | "en") || "bn",
@@ -39,8 +47,6 @@ export function mapSupabaseArticleRow(
     title_en: String(row.title_en),
     summary_bn: String(row.summary_bn),
     summary_en: String(row.summary_en),
-    body_bn: row.body_bn ? String(row.body_bn) : String(row.summary_bn),
-    body_en: row.body_en ? String(row.body_en) : String(row.summary_en),
     verification_status: row.verification_status as Article["verification_status"],
     confidence_score: Number(row.confidence_score || 75),
     source_count: Number(row.source_count || 1),
@@ -54,4 +60,13 @@ export function mapSupabaseArticleRow(
     is_breaking: Boolean(row.is_breaking),
     sources: linkedSources,
   };
+
+  if (typeof row.body_bn === "string" && row.body_bn.trim()) {
+    mapped.body_bn = row.body_bn;
+  }
+  if (typeof row.body_en === "string" && row.body_en.trim()) {
+    mapped.body_en = row.body_en;
+  }
+
+  return mapped;
 }

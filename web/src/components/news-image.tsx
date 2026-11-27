@@ -97,7 +97,7 @@ export function NewsImage({
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 flex items-center justify-center px-2 select-none"
       >
-        <span className="hidden rounded-[2px] border border-white/20 bg-black/35 px-2 py-0.5 text-center text-[9px] font-semibold tracking-wider text-white/85 backdrop-blur-[1px] @min-[200px]:inline-block sm:text-[10px]">
+        <span className="hidden rounded-[2px] border border-white/20 bg-black/35 px-2 py-0.5 text-center text-[9px] font-semibold tracking-wider text-white/85 backdrop-blur-[1px] @min-[340px]:inline-block sm:text-[10px]">
           {activeLang === "bn"
             ? "সংগৃহীত ছবি • আমাদের তোলা নয় (Collected · Not taken by us)"
             : "Collected · Not taken by us"}

@@ -131,7 +131,8 @@ export async function onRequestPost(context: PagesContext) {
     const sourceUrl = isSafeExternalUrl(rawSourceUrl)
       ? rawSourceUrl
       : "https://factnewsbangladesh.bond";
-    const slugHash = (await sha256Hex(sourceUrl)).slice(0, 8);
+    const fullHash = await sha256Hex(sourceUrl);
+    const slugHash = fullHash.slice(0, 8);
     const safeCustomSlug = item.slug
       ? item.slug
           .toLowerCase()
@@ -143,7 +144,7 @@ export async function onRequestPost(context: PagesContext) {
       safeCustomSlug ||
       `${titleEn.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "story"}-${slugHash}`;
 
-    const articleId = `art_${slugHash}`;
+    const articleId = `art_${fullHash.slice(0, 12)}`;
     const category = item.category && ALLOWED_CATEGORIES.has(item.category) ? item.category : "national";
     const verificationStatus =
       item.verification_status && ALLOWED_VERIFICATION.has(item.verification_status)
@@ -212,35 +213,81 @@ export async function onRequestPost(context: PagesContext) {
     return jsonResponse({ error: "No valid articles in payload" }, 400, true);
   }
 
-  // Look up any pre-existing slugs so we preserve their exact `id` and never trigger article_sources FK conflicts
+  // Look up pre-existing rows by slug, source_url, and tentative id so neither articles_pkey nor articles_slug_key ever conflicts
   const existingBySlug = new Map<string, string>();
+  const existingBySourceUrl = new Map<string, { id: string; slug: string }>();
+  const takenIds = new Set<string>();
+
   const slugList = rowsList.map((r) => String(r.slug)).join(",");
-  const existingRes = await fetch(
-    `${sb.url}/rest/v1/articles?select=id,slug&slug=in.(${encodeURIComponent(slugList)})`,
-    {
-      headers: {
-        apikey: sb.serviceKey,
-        Authorization: `Bearer ${sb.serviceKey}`,
-      },
-    },
-  );
-  if (existingRes.ok) {
-    const existingRows = (await existingRes.json()) as Array<{ id: string; slug: string }>;
-    for (const er of existingRows) {
+  const urlList = rowsList.map((r) => String(r.source_url)).join(",");
+  const idList = rowsList.map((r) => String(r.id)).join(",");
+
+  const [bySlugRes, byUrlRes, byIdRes] = await Promise.all([
+    fetch(`${sb.url}/rest/v1/articles?select=id,slug&slug=in.(${encodeURIComponent(slugList)})`, {
+      headers: { apikey: sb.serviceKey, Authorization: `Bearer ${sb.serviceKey}` },
+    }),
+    fetch(`${sb.url}/rest/v1/articles?select=id,slug,source_url&source_url=in.(${encodeURIComponent(urlList)})`, {
+      headers: { apikey: sb.serviceKey, Authorization: `Bearer ${sb.serviceKey}` },
+    }),
+    fetch(`${sb.url}/rest/v1/articles?select=id&id=in.(${encodeURIComponent(idList)})`, {
+      headers: { apikey: sb.serviceKey, Authorization: `Bearer ${sb.serviceKey}` },
+    }),
+  ]);
+
+  if (bySlugRes.ok) {
+    for (const er of (await bySlugRes.json()) as Array<{ id: string; slug: string }>) {
       existingBySlug.set(er.slug, er.id);
+      takenIds.add(er.id);
+    }
+  }
+  if (byUrlRes.ok) {
+    for (const er of (await byUrlRes.json()) as Array<{ id: string; slug: string; source_url: string }>) {
+      existingBySourceUrl.set(er.source_url, { id: er.id, slug: er.slug });
+      takenIds.add(er.id);
+    }
+  }
+  if (byIdRes.ok) {
+    for (const er of (await byIdRes.json()) as Array<{ id: string }>) {
+      takenIds.add(er.id);
     }
   }
 
-  const rows = rowsList.map((r) => {
-    const existingId = existingBySlug.get(String(r.slug));
-    return existingId ? { ...r, id: existingId } : r;
-  });
+  const finalIdByOrigId = new Map<string, string>();
+  const batchUsedIds = new Set<string>();
+  const batchUsedSlugs = new Set<string>();
+  const rows: Record<string, unknown>[] = [];
+
+  for (const r of rowsList) {
+    const origId = String(r.id);
+    let finalSlug = String(r.slug);
+    const slugOwnerId = existingBySlug.get(finalSlug);
+    const urlMatch = existingBySourceUrl.get(String(r.source_url));
+
+    let finalId: string;
+    if (slugOwnerId) {
+      finalId = slugOwnerId;
+    } else if (urlMatch) {
+      finalId = urlMatch.id;
+      finalSlug = urlMatch.slug;
+    } else if (!takenIds.has(origId) && !batchUsedIds.has(origId)) {
+      finalId = origId;
+    } else {
+      finalId = `art_${(await sha256Hex(`${String(r.source_url)}#${finalSlug}`)).slice(0, 14)}`;
+    }
+
+    if (batchUsedIds.has(finalId) || batchUsedSlugs.has(finalSlug)) {
+      continue;
+    }
+    batchUsedIds.add(finalId);
+    batchUsedSlugs.add(finalSlug);
+    finalIdByOrigId.set(origId, finalId);
+    rows.push({ ...r, id: finalId, slug: finalSlug });
+  }
 
   const remappedSourceRowsMap = new Map<string, Record<string, unknown>>();
   for (const sRow of sourceRowsMap.values()) {
-    const oldArtId = String(sRow.article_id);
-    const matchedRow = rowsList.find((r) => String(r.id) === oldArtId);
-    const finalArtId = matchedRow ? (existingBySlug.get(String(matchedRow.slug)) || oldArtId) : oldArtId;
+    const finalArtId = finalIdByOrigId.get(String(sRow.article_id));
+    if (!finalArtId) continue;
     const domKey = String(sRow.source_domain);
     remappedSourceRowsMap.set(`${finalArtId}::${domKey}`, { ...sRow, article_id: finalArtId });
   }

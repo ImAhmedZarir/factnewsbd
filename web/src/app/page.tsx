@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { NewsFrontpage } from "@/components/news-frontpage";
 import { safeJsonLd } from "@/lib/security";
-import { getArticles } from "@/lib/store";
+import { getFeedArticles } from "@/lib/store";
 
 export const dynamic = "force-static";
 
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
 };
 
 export default async function HomePage() {
-  const articles = await getArticles(160);
+  const articles = await getFeedArticles(60);
 
   const itemListJsonLd = {
     "@context": "https://schema.org",

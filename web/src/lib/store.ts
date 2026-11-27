@@ -2,12 +2,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { buildCdnImageToken, buildCdnImageUrl } from "./cdn";
-import { mapSupabaseArticleRow } from "./supabase-mapper";
+import { mapSupabaseArticleRow, toFeedCardArticle } from "./supabase-mapper";
 import type { Article, IngestLogRecord } from "./types";
 
 const DATA_DIR = path.resolve(process.cwd(), "..", "data");
 const ARTICLES_FILE = path.join(DATA_DIR, "scraped_seed.json");
 const INGEST_LOGS_FILE = path.join(DATA_DIR, "ingest_logs.json");
+const SUPABASE_PAGE_SIZE = 1000;
+
+let buildAllArticlesCache: Promise<Article[]> | null = null;
+let buildSlugMapCache: Promise<Map<string, Article>> | null = null;
 
 function getSupabasePublicClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -109,21 +113,31 @@ function enrichArticle(raw: Article): Article {
   };
 }
 
-export async function getArticles(limit = 300): Promise<Article[]> {
+async function loadAllArticlesUncached(maxTotal = 2500): Promise<Article[]> {
   const sb = getSupabasePublicClient();
   if (sb) {
-    const { data, error } = await sb
-      .from("articles")
-      .select("*, article_sources(*)")
-      .eq("status", "published")
-      .order("published_at", { ascending: false })
-      .limit(limit);
+    const collected: Article[] = [];
+    for (let offset = 0; offset < maxTotal; offset += SUPABASE_PAGE_SIZE) {
+      const end = Math.min(offset + SUPABASE_PAGE_SIZE - 1, maxTotal - 1);
+      const { data, error } = await sb
+        .from("articles")
+        .select("*, article_sources(*)")
+        .eq("status", "published")
+        .order("published_at", { ascending: false })
+        .range(offset, end);
 
-    if (!error && Array.isArray(data) && data.length > 0) {
-      const mapped = data.map((row: Record<string, unknown>) =>
-        mapSupabaseArticleRow(row),
-      );
-      return mapped.sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
+      if (error || !Array.isArray(data) || data.length === 0) {
+        break;
+      }
+      for (const row of data) {
+        collected.push(mapSupabaseArticleRow(row as Record<string, unknown>));
+      }
+      if (data.length < SUPABASE_PAGE_SIZE) {
+        break;
+      }
+    }
+    if (collected.length > 0) {
+      return collected.sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
     }
   }
 
@@ -131,7 +145,7 @@ export async function getArticles(limit = 300): Promise<Article[]> {
   try {
     const raw = JSON.parse(fs.readFileSync(ARTICLES_FILE, "utf8")) as Article[];
     return raw
-      .slice(0, limit)
+      .slice(0, maxTotal)
       .map(enrichArticle)
       .sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
   } catch {
@@ -139,8 +153,41 @@ export async function getArticles(limit = 300): Promise<Article[]> {
   }
 }
 
+export async function getArticles(limit = 300): Promise<Article[]> {
+  const canCache = process.env.NODE_ENV === "production";
+  if (canCache) {
+    if (!buildAllArticlesCache) {
+      buildAllArticlesCache = loadAllArticlesUncached(2500);
+    }
+    const all = await buildAllArticlesCache;
+    return all.slice(0, limit);
+  }
+  const list = await loadAllArticlesUncached(limit);
+  return list.slice(0, limit);
+}
+
+export async function getFeedArticles(limit = 60): Promise<Article[]> {
+  const list = await getArticles(limit);
+  return list.map(toFeedCardArticle);
+}
+
 export async function getArticleBySlug(slug: string): Promise<Article | null> {
-  const all = await getArticles(500);
+  if (process.env.NODE_ENV === "production") {
+    if (!buildSlugMapCache) {
+      buildSlugMapCache = getArticles(2500).then((list) => {
+        const bySlug = new Map<string, Article>();
+        for (const item of list) {
+          bySlug.set(item.slug, item);
+        }
+        return bySlug;
+      });
+    }
+    const slugMap = await buildSlugMapCache;
+    const hit = slugMap.get(slug);
+    if (hit) return hit;
+  }
+
+  const all = await getArticles(2500);
   return all.find((a) => a.slug === slug) ?? null;
 }
 

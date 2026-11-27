@@ -16,24 +16,23 @@ export async function onRequestGet(context: PagesContext) {
   );
   const url = context.env.NEXT_PUBLIC_SUPABASE_URL || context.env.SUPABASE_URL;
   const anonKey = context.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const sb = getSupabaseConfig(context.env);
+  const restUrl = (url || sb?.url || "").replace(/\/$/, "");
+  const authKey = anonKey || sb?.serviceKey || "";
 
-  let articles: Array<{ slug: string; published_at: string }> = [];
-  if (url && anonKey) {
-    const res = await fetch(
-      `${url.replace(/\/$/, "")}/rest/v1/articles?select=slug,published_at&status=eq.published&order=published_at.desc&limit=5000`,
-      { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` } },
-    );
-    if (res.ok) {
-      articles = (await res.json()) as typeof articles;
-    }
-  } else {
-    const sb = getSupabaseConfig(context.env);
-    if (sb) {
+  const articles: Array<{ slug: string; published_at: string }> = [];
+  if (restUrl && authKey) {
+    const PAGE = 1000;
+    for (let offset = 0; offset < 5000; offset += PAGE) {
       const res = await fetch(
-        `${sb.url}/rest/v1/articles?select=slug,published_at&status=eq.published&order=published_at.desc&limit=1000`,
-        { headers: { apikey: sb.serviceKey, Authorization: `Bearer ${sb.serviceKey}` } },
+        `${restUrl}/rest/v1/articles?select=slug,published_at&status=eq.published&order=published_at.desc&limit=${PAGE}&offset=${offset}`,
+        { headers: { apikey: authKey, Authorization: `Bearer ${authKey}` } },
       );
-      if (res.ok) articles = (await res.json()) as typeof articles;
+      if (!res.ok) break;
+      const chunk = (await res.json()) as Array<{ slug: string; published_at: string }>;
+      if (!Array.isArray(chunk) || chunk.length === 0) break;
+      articles.push(...chunk);
+      if (chunk.length < PAGE) break;
     }
   }
 

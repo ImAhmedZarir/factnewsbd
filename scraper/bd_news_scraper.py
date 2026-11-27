@@ -22,6 +22,7 @@ import json
 import re
 import ssl
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -42,6 +43,7 @@ TIMEOUT_SECS = 12
 LOOKBACK_DAYS = 10
 SCRIPT_DIR = Path(__file__).resolve().parent
 OBSCURA_BIN = SCRIPT_DIR / "bin" / "obscura.exe"
+_OBSCURA_SEM = threading.Semaphore(8)
 
 
 @dataclass
@@ -199,10 +201,20 @@ BOILERPLATE_TITLES = {
 }
 
 NOISE_PHRASES = (
-    "subscribe", "cookie", "copyright", "all rights reserved", "follow us", "google news",
-    "আরও পড়ুন", "আরও পড়ুন", "সর্বশেষ খবর পেতে", "গুগল নিউজে", "বিজ্ঞাপন", "এই বিভাগের আরও",
-    "click here", "sign up", "read more", "share this", "whatsapp", "telegram",
-    "বিস্তারিত আসছে", "ফলো করুন", "ইউটিউব চ্যানেল",
+    "subscribe", "cookie", "copyright: any unauthorized", "all rights reserved", "follow us",
+    "গুগল নিউজে", "বিজ্ঞাপন", "এই বিভাগের আরও", "সর্বশেষ খবর পেতে", "চোখ রাখুন প্রথম আলোতে",
+    "আরও পড়তে ক্লিক করুন", "click here to", "sign up for", "share this article",
+    "বিস্তারিত আসছে", "ফলো করুন", "ইউটিউব চ্যানেল", "সব খবর জানতে চোখ রাখুন",
+)
+
+PROMO_SENTENCE_RE = re.compile(
+    r"(?:এই\s+(?:ম্যাচের|বিষয়ের|বিষয়ের)\s+সব\s+খবর\s+জানতে\s+চোখ\s+রাখুন[^।!?]*[।!?]?|"
+    r"সর্বশেষ\s+খবর\s+পেতে\s+গুগল\s+নিউজ[^।!?]*[।!?]?|"
+    r"চোখ\s+রাখুন\s+প্রথম\s+আলোতে[।!?]?|"
+    r"আরও\s+পড়ুন\s*:?[^।!?\n]*$|"
+    r"আরও\s+পড়ুন\s*:?[^।!?\n]*$|"
+    r"Copyright:\s*Any unauthorized[^.\n]*\.?)",
+    flags=re.I,
 )
 
 GENERIC_DESC_FRAGMENTS = (
@@ -212,6 +224,27 @@ GENERIC_DESC_FRAGMENTS = (
     "newspaper published from dhaka",
     "latest news of bangladesh",
 )
+
+JS_REQUIRED_DOMAINS = (
+    "thedailystar.net",
+    "dhakatribune.com",
+    "bonikbarta.com",
+    "newagebd.net",
+    "thefinancialexpress.com.bd",
+)
+
+
+def strip_promo_tails(text: str) -> str:
+    t = PROMO_SENTENCE_RE.sub("", text)
+    t = re.sub(r"^(?:প্রকাশ|Published|আপডেট|Updated)\s*[:：][^\n|]{0,50}\|?\s*", "", t, flags=re.I)
+    t = re.sub(r"\s+", " ", t).strip()
+    if t.endswith("...") or t.endswith("…"):
+        # Truncated RSS preview tail — trim partial last fragment back to last complete sentence if available
+        trimmed = t.rstrip(".… ")
+        last_stop = max(trimmed.rfind("।"), trimmed.rfind("."))
+        if last_stop > len(trimmed) * 0.45:
+            t = trimmed[: last_stop + 1]
+    return t.strip()
 
 
 def clean_text(raw: str | None) -> str:
@@ -319,36 +352,116 @@ def fetch_raw_urllib(url: str) -> str:
         return raw_bytes.decode("utf-8", errors="replace")
 
 
-def fetch_raw_obscura(url: str) -> str:
+def fetch_raw_obscura(url: str, mode: str = "original") -> str:
     if not OBSCURA_BIN.exists():
         return fetch_raw_urllib(url)
-    res = subprocess.run(
-        [str(OBSCURA_BIN), "--stealth", "fetch", url, "--dump", "original", "--timeout", "16", "-q"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=24,
-    )
+    cmd = [str(OBSCURA_BIN), "--stealth", "fetch", url, "--dump", mode, "--timeout", "18", "-q"]
+    if mode == "html":
+        cmd.extend(["--wait", "2"])
+    with _OBSCURA_SEM:
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=26,
+        )
     return res.stdout or ""
 
 
-def fetch_text(url: str, use_obscura: bool = False) -> str:
-    try:
-        txt = fetch_raw_urllib(url)
-        if txt and "just a moment" not in txt[:2000].lower() and "<title>403" not in txt[:1000].lower():
-            return txt
-    except Exception:
-        pass
-    if use_obscura and OBSCURA_BIN.exists():
+def fetch_text(url: str, use_obscura: bool = False, render_html: bool = False) -> str:
+    low_u = url.lower()
+    is_feed = low_u.endswith(".xml") or "/rss" in low_u or low_u.endswith("/feed") or "getxmlfeed" in low_u
+    force_browser = (not is_feed) and (render_html or any(dom in low_u for dom in JS_REQUIRED_DOMAINS))
+    if not force_browser:
         try:
-            return fetch_raw_obscura(url)
+            txt = fetch_raw_urllib(url)
+            head = txt[:2500].lower() if txt else ""
+            if (
+                txt
+                and len(txt) > 8000
+                and "just a moment" not in head
+                and "<title>403" not in head
+                and "checking your browser" not in head
+            ):
+                return txt
         except Exception:
             pass
-    return ""
+    if (use_obscura or force_browser) and OBSCURA_BIN.exists():
+        try:
+            mode = "html" if force_browser else "original"
+            out = fetch_raw_obscura(url, mode=mode)
+            if out and len(out) > 4000:
+                return out
+            if mode == "original":
+                return fetch_raw_obscura(url, mode="html")
+        except Exception:
+            pass
+    try:
+        return fetch_raw_urllib(url)
+    except Exception:
+        return ""
+
+
+def _parse_jsonld_article(html_text: str) -> dict[str, Any]:
+    meta: dict[str, Any] = {}
+    for m in re.finditer(
+        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html_text,
+        flags=re.DOTALL | re.I,
+    ):
+        raw = m.group(1).strip()
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        queue = data if isinstance(data, list) else [data]
+        for node in list(queue):
+            if isinstance(node, dict) and isinstance(node.get("@graph"), list):
+                queue.extend(node["@graph"])
+        for obj in queue:
+            if not isinstance(obj, dict):
+                continue
+            if obj.get("articleBody") and not meta.get("articleBody"):
+                meta["articleBody"] = str(obj["articleBody"])
+            if obj.get("datePublished") and not meta.get("datePublished"):
+                meta["datePublished"] = str(obj["datePublished"])
+            if obj.get("headline") and not meta.get("headline"):
+                meta["headline"] = str(obj["headline"])
+            if obj.get("description") and not meta.get("description"):
+                meta["description"] = str(obj["description"])
+    return meta
+
+
+def _collect_paragraphs_from_html(fragment: str) -> list[str]:
+    paras: list[str] = []
+    seen_p: set[str] = set()
+    for m in re.finditer(r"<p\b[^>]*>(.*?)</p>", fragment, flags=re.DOTALL | re.I):
+        raw_inner = m.group(1)
+        if re.search(r"^\s*<a\b[^>]*>.*?</a>\s*$", raw_inner, flags=re.DOTALL | re.I):
+            continue
+        p = strip_promo_tails(clean_text(raw_inner))
+        low = p.lower()
+        if len(p) < 28 or any(n in low for n in NOISE_PHRASES):
+            continue
+        if re.match(r"^(?:ছবি|ফাইল ছবি|Photo|Credit)\s*[:：]", p, flags=re.I) and len(p) < 90:
+            continue
+        key = p[:42]
+        if key in seen_p:
+            continue
+        seen_p.add(key)
+        paras.append(p)
+        if len(paras) >= 16:
+            break
+    return paras
 
 
 def extract_dom_from_html(html_text: str, page_url: str) -> dict[str, Any]:
+    ld = _parse_jsonld_article(html_text)
+
     h1_m = re.search(r"<h1\b[^>]*>(.*?)</h1>", html_text, re.S | re.I)
     og_t_m = re.search(
         r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']|<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
@@ -356,14 +469,21 @@ def extract_dom_from_html(html_text: str, page_url: str) -> dict[str, Any]:
         re.I,
     )
     title_m = re.search(r"<title\b[^>]*>(.*?)</title>", html_text, re.S | re.I)
-    t_val = clean_text(h1_m.group(1)) if h1_m else (clean_text(og_t_m.group(1) or og_t_m.group(2)) if og_t_m else (clean_text(title_m.group(1)) if title_m else ""))
+    t_val = (
+        clean_text(h1_m.group(1))
+        if h1_m
+        else (
+            clean_text(ld.get("headline"))
+            or (clean_text(og_t_m.group(1) or og_t_m.group(2)) if og_t_m else (clean_text(title_m.group(1)) if title_m else ""))
+        )
+    )
 
     desc_m = re.search(
         r'<meta[^>]+(?:name=["\']description["\']|property=["\']og:description["\'])[^>]+content=["\']([^"\']+)["\']|<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:name=["\']description["\']|property=["\']og:description["\'])',
         html_text,
         re.I,
     )
-    d_val = clean_text(desc_m.group(1) or desc_m.group(2)) if desc_m else ""
+    d_val = strip_promo_tails(clean_text(ld.get("description") or (desc_m.group(1) or desc_m.group(2) if desc_m else "")))
 
     img_m = re.search(
         r'<meta[^>]+(?:property=["\']og:image["\']|name=["\']twitter:image["\'])[^>]+content=["\']([^"\']+)["\']|<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property=["\']og:image["\']|name=["\']twitter:image["\'])',
@@ -372,53 +492,77 @@ def extract_dom_from_html(html_text: str, page_url: str) -> dict[str, Any]:
     )
     img_val = (img_m.group(1) or img_m.group(2)) if img_m else None
 
-    pub_val = None
-    for pat in (
-        r'"datePublished"\s*:\s*"([^"]+)"',
-        r'"dateCreated"\s*:\s*"([^"]+)"',
-        r'property=["\']article:published_time["\'][^>]+content=["\']([^"\']+)["\']',
-        r'content=["\']([^"\']+)["\'][^>]+property=["\']article:published_time["\']',
-        r'dateTime=["\']([^"\']+)["\']',
-        r'datetime=["\']([^"\']+)["\']',
-    ):
-        pm = re.search(pat, html_text, re.I)
-        if pm:
-            pub_val = pm.group(1)
-            break
+    pub_val = ld.get("datePublished")
+    if not pub_val:
+        for pat in (
+            r'"datePublished"\s*:\s*"([^"]+)"',
+            r'"dateCreated"\s*:\s*"([^"]+)"',
+            r'property=["\']article:published_time["\'][^>]+content=["\']([^"\']+)["\']',
+            r'content=["\']([^"\']+)["\'][^>]+property=["\']article:published_time["\']',
+            r'dateTime=["\']([^"\']+)["\']',
+            r'datetime=["\']([^"\']+)["\']',
+        ):
+            pm = re.search(pat, html_text, re.I)
+            if pm:
+                pub_val = pm.group(1)
+                break
 
+    # Strip non-content boilerplate tags cleanly (avoid greedy header/form/aside over-stripping)
     cleaned_html = re.sub(
-        r"<(script|style|noscript|header|footer|nav|aside|form|figure)\b[^>]*>.*?</\1>",
+        r"<(script|style|noscript|footer|nav|svg)\b[^>]*>.*?</\1>",
         " ",
         html_text,
         flags=re.DOTALL | re.I,
     )
+
+    # Prefer scoped <article> block first when rich
     paras: list[str] = []
-    seen_p: set[str] = set()
-    for m in re.finditer(r"<p\b[^>]*>(.*?)</p>", cleaned_html, flags=re.DOTALL | re.I):
-        p = clean_text(m.group(1))
-        if len(p) < 48 or any(n in p.lower() for n in NOISE_PHRASES):
-            continue
-        if p[:42] in seen_p:
-            continue
-        seen_p.add(p[:42])
-        paras.append(p)
-        if len(paras) >= 8:
-            break
+    art_m = re.search(r"<article\b[^>]*>(.*?)</article>", cleaned_html, flags=re.DOTALL | re.I)
+    if art_m:
+        paras = _collect_paragraphs_from_html(art_m.group(1))
+    if len(paras) < 3:
+        paras = _collect_paragraphs_from_html(cleaned_html)
+
+    # Fallback / supplement from JSON-LD articleBody when HTML DOM was JS-gated or <div/> formatted
+    ld_body = strip_promo_tails(clean_text(ld.get("articleBody")))
+    if ld_body and (len(paras) < 3 or sum(len(x) for x in paras) < len(ld_body) * 0.6):
+        # Split long articleBody cleanly every 2 sentences into natural readable paragraphs
+        sents = [s.strip() for s in re.split(r"(?<=[।\.\?!])\s+", ld_body) if len(s.strip()) >= 25]
+        grouped: list[str] = []
+        buf: list[str] = []
+        for s in sents:
+            if any(n in s.lower() for n in NOISE_PHRASES):
+                continue
+            buf.append(s)
+            if len(buf) >= 2 and sum(len(b) for b in buf) >= 180:
+                grouped.append(" ".join(buf))
+                buf = []
+        if buf:
+            grouped.append(" ".join(buf))
+        if len(grouped) >= len(paras):
+            paras = grouped[:16]
 
     return {"u": page_url, "t": t_val, "d": d_val, "img": img_val, "pub": pub_val, "paras": paras}
 
 
 def obscura_batch_extract(urls: list[str], concurrency: int = 18) -> dict[str, dict[str, Any]]:
-    """Parallel hybrid extractor: fast HTTP first, immediate fallback to obscura stealth browser."""
+    """Parallel hybrid extractor: fast HTTP first, automatic obscura stealth rendered-DOM escalation when body < 4 paragraphs."""
     out_map: dict[str, dict[str, Any]] = {}
     if not urls:
         return out_map
 
     def worker(u: str) -> tuple[str, dict[str, Any] | None]:
-        raw_html = fetch_text(u, use_obscura=True)
-        if not raw_html or len(raw_html) < 400:
-            return u, None
-        return u, extract_dom_from_html(raw_html, u)
+        raw_html = fetch_text(u, use_obscura=True, render_html=False)
+        dom = extract_dom_from_html(raw_html, u) if raw_html and len(raw_html) > 400 else None
+        para_count = len(dom.get("paras") or []) if dom else 0
+        body_chars = sum(len(p) for p in (dom.get("paras") or [])) if dom else 0
+        if (para_count < 3 or body_chars < 420) and OBSCURA_BIN.exists():
+            rendered_html = fetch_text(u, use_obscura=True, render_html=True)
+            if rendered_html and len(rendered_html) > 400:
+                dom2 = extract_dom_from_html(rendered_html, u)
+                if len(dom2.get("paras") or []) > para_count:
+                    dom = dom2
+        return u, dom
 
     done = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -517,6 +661,9 @@ def parse_xml_feed_or_sitemap(xml_text: str, source: NewsSource, base_url: str, 
                 link = link_el.attrib.get("href", "")
         if not title or not link or len(title) < 12 or title.lower() in BOILERPLATE_TITLES:
             continue
+        low_link = link.lower()
+        if any(skip in low_link for skip in ("/star-multimedia/", "/multimedia/", "/video/", "/photo/", "/gallery/")):
+            continue
 
         desc = clean_text(node.findtext("description") or node.findtext("summary") or node.findtext("encoded"))
         pub_raw = clean_text(node.findtext("pubDate") or node.findtext("published") or node.findtext("updated"))
@@ -563,7 +710,7 @@ def parse_xml_feed_or_sitemap(xml_text: str, source: NewsSource, base_url: str, 
         if not loc or len(loc) < 20:
             continue
         low_loc = loc.lower()
-        if any(skip in low_loc for skip in ("/topic/", "/tag/", "/author/", "/video/", "/photo/", "/e-paper", "/gallery")):
+        if any(skip in low_loc for skip in ("/topic/", "/tag/", "/author/", "/video/", "/photo/", "/e-paper", "/gallery", "/star-multimedia/", "/multimedia/")):
             continue
         news_el = unode.find("news")
         pub_str = clean_text(news_el.findtext("publication_date") if news_el is not None else None) or clean_text(unode.findtext("lastmod"))
@@ -693,11 +840,21 @@ def collect_source_urls(source: NewsSource, now_utc: datetime) -> list[RawItem]:
     return collected
 
 
-def enrich_items_with_obscura(items: list[RawItem], now_utc: datetime, max_scrape: int = 1200) -> None:
+def enrich_items_with_obscura(items: list[RawItem], now_utc: datetime, max_scrape: int = 2400) -> None:
     """Select balanced candidates across ALL 10 days + viral/war/sports topics for obscura DOM & timestamp extraction."""
     raw_candidates = [
         it for it in items
-        if it.title == "__PENDING_TITLE__" or not it.has_real_ts or len(it.body_paragraphs) < 2 or not it.image_url
+        if (
+            "/star-multimedia/" not in it.url.lower()
+            and "/multimedia/" not in it.url.lower()
+            and (
+                it.title == "__PENDING_TITLE__"
+                or not it.has_real_ts
+                or len(it.body_paragraphs) < 4
+                or sum(len(p) for p in it.body_paragraphs) < 500
+                or not it.image_url
+            )
+        )
     ]
     by_day: dict[str, list[RawItem]] = {}
     for it in raw_candidates:
@@ -759,8 +916,8 @@ def enrich_items_with_obscura(items: list[RawItem], now_utc: datetime, max_scrap
         paras: list[str] = []
         seen_p: set[str] = set()
         for raw_p in dom.get("paras") or []:
-            p = clean_text(raw_p)
-            if len(p) < 50:
+            p = strip_promo_tails(clean_text(raw_p))
+            if len(p) < 28:
                 continue
             low = p.lower()
             if any(noise in low for noise in NOISE_PHRASES):
@@ -772,7 +929,7 @@ def enrich_items_with_obscura(items: list[RawItem], now_utc: datetime, max_scrap
         if paras:
             it.body_paragraphs = paras
 
-        raw_d = clean_text(dom.get("d"))
+        raw_d = strip_promo_tails(clean_text(dom.get("d")))
         if raw_d and not any(g in raw_d.lower() for g in GENERIC_DESC_FRAGMENTS) and len(raw_d) > 35:
             it.summary = raw_d[:340]
         elif paras:
@@ -804,64 +961,63 @@ def rewrite_editorial_copy(lead: RawItem, group: list[RawItem]) -> tuple[str, st
     ordered_group = [lead, *[g for g in group if g is not lead]]
     for g in ordered_group:
         for p in g.body_paragraphs:
-            cp = clean_text(p)
-            if len(cp) < 48 or any(bad in cp.lower() for bad in GENERIC_DESC_FRAGMENTS):
+            cp = strip_promo_tails(clean_text(p))
+            if len(cp) < 28 or any(bad in cp.lower() for bad in GENERIC_DESC_FRAGMENTS):
                 continue
-            key = cp[:48]
+            if any(noise in cp.lower() for noise in NOISE_PHRASES):
+                continue
+            key = cp[:46]
             if key not in seen_prefix:
                 seen_prefix.add(key)
                 merged_paras.append(cp)
-            if len(merged_paras) >= 7:
+            if len(merged_paras) >= 16:
                 break
-        if len(merged_paras) >= 7:
+        if len(merged_paras) >= 16:
             break
 
-    base_summary = clean_text(lead.summary)
-    if not base_summary or len(base_summary) < 30 or any(bad in base_summary.lower() for bad in GENERIC_DESC_FRAGMENTS):
+    base_summary = strip_promo_tails(clean_text(lead.summary))
+    if (
+        not base_summary
+        or len(base_summary) < 35
+        or base_summary.lower().strip(" .।") == lead.title.lower().strip(" .।")
+        or any(bad in base_summary.lower() for bad in GENERIC_DESC_FRAGMENTS)
+    ):
         base_summary = merged_paras[0][:300] if merged_paras else lead.title
 
     src_list_bn = ", ".join(distinct_names_bn[:3])
     src_list_en = ", ".join(distinct_names_en[:3])
 
-    if lead.lang == "bn":
-        rewritten_lead_bn = (
-            f"{src_list_bn} সহ একাধিক সংবাদমাধ্যমের বরাতে প্রাপ্ত তথ্য অনুযায়ী — {base_summary}"
-            if len(distinct_names_bn) > 1
-            else f"{lead.source_name_bn}-এর প্রকাশিত প্রতিবেদন অনুযায়ী — {base_summary}"
-        )
-        closing_bn = (
-            f"সূত্র বিশ্লেষণ: ঘটনাটি {src_list_bn}-এ প্রকাশিত পৃথক প্রতিবেদন ও সময়সূচি মিলিয়ে যাচাই করা হয়েছে।"
-            if len(distinct_names_bn) > 1
-            else f"তথ্যসূত্র: {lead.source_name_bn}-এর মূল প্রতিবেদন থেকে সংকলিত ও যাচাইকৃত।"
-        )
-        rewritten_lead_en = f"Verified report based on coverage from {src_list_en}: {base_summary}"
+    body_paras: list[str] = []
+    if len(merged_paras) > 0:
+        first = merged_paras[0]
+        if base_summary and len(base_summary) > 40 and base_summary[:35] not in first:
+            body_paras.append(base_summary)
+        body_paras.extend(merged_paras)
     else:
-        rewritten_lead_bn = f"{src_list_bn}-এর প্রতিবেদন অনুযায়ী — {lead.title}। {base_summary}"
-        rewritten_lead_en = (
-            f"Corroborated across {src_list_en} — {base_summary}"
-            if len(distinct_names_en) > 1
-            else f"According to reporting from {lead.source_name_en} — {base_summary}"
+        body_paras.append(base_summary)
+
+    if len(distinct_names_bn) > 1:
+        body_paras.append(
+            f"সংশ্লিষ্ট ঘটনার সময়কাল ও বিবরণ {src_list_bn}-এ প্রকাশিত একাধিক প্রতিবেদনের তথ্যের সঙ্গে মিলিয়ে নিশ্চিত করা হয়েছে।"
         )
-        closing_bn = f"তথ্যসূত্র: {src_list_en} থেকে সংকলিত ও সময়কাল যাচাইকৃত প্রতিবেদন।"
 
-    body_paras = [rewritten_lead_bn]
-    for p in merged_paras:
-        if p[:40] not in rewritten_lead_bn:
-            body_paras.append(p)
-    body_paras.append(closing_bn)
+    body_en_paras: list[str] = []
+    if len(merged_paras) > 0:
+        if base_summary and len(base_summary) > 40 and base_summary[:35] not in merged_paras[0]:
+            body_en_paras.append(base_summary)
+        body_en_paras.extend(merged_paras)
+    else:
+        body_en_paras.append(base_summary)
 
-    body_en_paras = [rewritten_lead_en]
-    for p in merged_paras:
-        if p[:40] not in rewritten_lead_en:
-            body_en_paras.append(p)
-    body_en_paras.append(
-        f"Editorial verification note: Published timestamps and reporting details cross-checked against {src_list_en}."
-    )
+    if len(distinct_names_en) > 1:
+        body_en_paras.append(
+            f"Key facts and timelines in this report have been cross-checked across coverage from {src_list_en}."
+        )
 
     return base_summary[:320], base_summary[:320], "\n\n".join(body_paras), "\n\n".join(body_en_paras)
 
 
-def analyze_and_build_articles(raw_items: list[RawItem], limit: int = 800) -> list[dict[str, Any]]:
+def analyze_and_build_articles(raw_items: list[RawItem], limit: int = 1200) -> list[dict[str, Any]]:
     valid_raw = [it for it in raw_items if it.title and it.title != "__PENDING_TITLE__" and len(it.title) >= 14]
 
     clusters: list[list[RawItem]] = []
@@ -899,9 +1055,12 @@ def analyze_and_build_articles(raw_items: list[RawItem], limit: int = 800) -> li
 
         lead = max(
             group,
-            key=lambda g: (len(g.body_paragraphs), 1 if g.image_url else 0, -g.source_tier, len(g.summary)),
+            key=lambda g: (sum(len(p) for p in g.body_paragraphs), len(g.body_paragraphs), 1 if g.image_url else 0, -g.source_tier),
         )
-        if not lead.body_paragraphs and len(lead.summary) < 30 and len(lead.title) < 28:
+        summary_bn, summary_en, body_bn, body_en = rewrite_editorial_copy(lead, group)
+        para_count = len([p for p in body_bn.split("\n\n") if len(p.strip()) >= 28])
+        # Never publish thin 1-2 line stub / redirect posts
+        if para_count < 3 and len(body_bn) < 420:
             continue
 
         distinct_sources = len({g.source_domain for g in group})
@@ -912,7 +1071,6 @@ def analyze_and_build_articles(raw_items: list[RawItem], limit: int = 800) -> li
             continue
         seen_slugs.add(slug)
 
-        summary_bn, summary_en, body_bn, body_en = rewrite_editorial_copy(lead, group)
         image_url = next((g.image_url for g in group if g.image_url), None)
 
         sources_payload = [
@@ -999,7 +1157,7 @@ def push_sequentially(
         pushed_ok = False
         last_err: Exception | None = None
         for endpoint in target_urls:
-            for attempt in range(2):
+            for attempt in range(4):
                 req = urllib.request.Request(
                     endpoint,
                     data=json.dumps(payload).encode("utf-8"),
@@ -1012,7 +1170,7 @@ def push_sequentially(
                     method="POST",
                 )
                 try:
-                    with urllib.request.urlopen(req, timeout=30) as resp:
+                    with urllib.request.urlopen(req, timeout=45) as resp:
                         body = resp.read().decode("utf-8", "replace")
                         total_pushed += len(batch)
                         print(f"Batch {batch_num}/{total_batches} -> HTTP {resp.status} (pushed {total_pushed}/{len(chronological)}): {body[:120]}", flush=True)
@@ -1020,7 +1178,7 @@ def push_sequentially(
                         break
                 except Exception as exc:
                     last_err = exc
-                    time.sleep(1.0)
+                    time.sleep(1.5 * (attempt + 1))
             if pushed_ok:
                 break
         if not pushed_ok and last_err:
@@ -1032,8 +1190,8 @@ def push_sequentially(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="../data/scraped_seed.json")
-    parser.add_argument("--limit", type=int, default=800)
-    parser.add_argument("--max-extract", type=int, default=650)
+    parser.add_argument("--limit", type=int, default=1200)
+    parser.add_argument("--max-extract", type=int, default=2200)
     parser.add_argument("--push-url", default="")
     parser.add_argument("--pat", default="")
     parser.add_argument("--batch-size", type=int, default=25)

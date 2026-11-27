@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ArticleReader } from "@/components/article-reader";
 import { safeJsonLd } from "@/lib/security";
-import { getArticleBySlug, getArticles } from "@/lib/store";
+import { getArticleBySlug, getArticles, getFeedArticles } from "@/lib/store";
 
 export const dynamic = "force-static";
 
@@ -12,7 +12,7 @@ const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://factnewsbanglades
 );
 
 export async function generateStaticParams() {
-  const articles = await getArticles(400);
+  const articles = await getArticles(2500);
   return articles.map((a) => ({ slug: a.slug }));
 }
 
@@ -86,7 +86,7 @@ export default async function ArticlePage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const [article, all] = await Promise.all([getArticleBySlug(slug), getArticles(24)]);
+  const [article, all] = await Promise.all([getArticleBySlug(slug), getFeedArticles(40)]);
   if (!article) notFound();
 
   const related = all

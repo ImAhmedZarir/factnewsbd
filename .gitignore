@@ -5,6 +5,7 @@ node_modules/
 .wrangler/
 out/
 dist/
+web/public/feed/
 *.tsbuildinfo
 next-env.d.ts
 

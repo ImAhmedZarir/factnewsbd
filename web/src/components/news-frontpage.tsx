@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, TrendingUp } from "lucide-react";
 import { CATEGORIES, formatNewsTime, toBengaliDigits, UI_COPY } from "@/lib/i18n";
@@ -13,6 +13,14 @@ import { ShareBar } from "./share-bar";
 import { SiteFooter } from "./site-footer";
 import { SiteHeader } from "./site-header";
 import { SourcePills } from "./source-pills";
+
+interface FeedManifest {
+  total: number;
+  initialCount: number;
+  chunkSize: number;
+  latestPublishedAt: string;
+  chunks: string[];
+}
 
 interface NewsFrontpageProps {
   articles: Article[];
@@ -31,40 +39,100 @@ export function NewsFrontpage({
   const [category, setCategory] = useState<NewsCategory>(initialCategory);
   const [searchQuery, setSearchQuery] = useState("");
   const [railTab, setRailTab] = useState<"latest" | "popular">("latest");
-  const [loadingArchive, setLoadingArchive] = useState(false);
-  const [hasMoreArchive, setHasMoreArchive] = useState(true);
+  const [chunkUrls, setChunkUrls] = useState<string[]>([]);
+  const [nextChunkIdx, setNextChunkIdx] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [manifestLoaded, setManifestLoaded] = useState(false);
 
-  const loadOlderArchive = async () => {
-    const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!sbUrl || !anonKey || loadingArchive) return;
-    setLoadingArchive(true);
-    try {
-      const res = await fetch(
-        `${sbUrl}/rest/v1/articles?select=*,article_sources(*)&status=eq.published&order=published_at.desc&limit=120&offset=${articles.length}`,
-        { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` } },
-      );
-      if (res.ok) {
-        const rows = (await res.json()) as Record<string, unknown>[];
-        if (!Array.isArray(rows) || rows.length === 0) {
-          setHasMoreArchive(false);
-        } else {
-          const nextItems = rows.map((r) => mapSupabaseArticleRow(r));
-          setArticles((prev) => {
-            const seen = new Set(prev.map((p) => p.slug));
-            const merged = [...prev];
-            for (const item of nextItems) {
-              if (!seen.has(item.slug)) merged.push(item);
-            }
-            return merged.sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
-          });
-          if (rows.length < 120) setHasMoreArchive(false);
+  const inFlightChunkRef = useRef<number | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  const hasMore = manifestLoaded && nextChunkIdx < chunkUrls.length;
+
+  const mergeArticles = useCallback((incoming: Article[]) => {
+    if (incoming.length === 0) return;
+    setArticles((prev) => {
+      const seen = new Set(prev.map((p) => p.slug));
+      let added = false;
+      const next = [...prev];
+      for (const item of incoming) {
+        if (!seen.has(item.slug)) {
+          seen.add(item.slug);
+          next.push(item);
+          added = true;
         }
       }
+      if (!added) return prev;
+      return next.sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
+    });
+  }, []);
+
+  // Load static JSON chunk manifest on mount + optional lightweight delta sync only for brand-new posts after build
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/feed/manifest.json", { cache: "no-cache" });
+        if (!res.ok) {
+          if (!cancelled) setManifestLoaded(true);
+          return;
+        }
+        const manifest = (await res.json()) as FeedManifest;
+        if (cancelled) return;
+        const urls = Array.isArray(manifest.chunks) ? manifest.chunks : [];
+        setChunkUrls(urls);
+        setManifestLoaded(true);
+
+        const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
+        const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+        if (sbUrl && anonKey && manifest.latestPublishedAt) {
+          const selectCols =
+            "id,slug,lang,category,region,title_bn,title_en,summary_bn,summary_en,verification_status,confidence_score,source_count,primary_source,primary_source_bn,source_url,image_cdn_token,image_alt_bn,image_alt_en,published_at,is_breaking,article_sources(*)";
+          const deltaRes = await fetch(
+            `${sbUrl}/rest/v1/articles?select=${selectCols}&status=eq.published&published_at=gt.${encodeURIComponent(manifest.latestPublishedAt)}&order=published_at.desc&limit=60`,
+            { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` } },
+          );
+          if (deltaRes.ok && !cancelled) {
+            const rows = (await deltaRes.json()) as Record<string, unknown>[];
+            if (Array.isArray(rows) && rows.length > 0) {
+              mergeArticles(rows.map((r) => mapSupabaseArticleRow(r)));
+            }
+          }
+        }
+      } catch {
+        if (!cancelled) setManifestLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mergeArticles]);
+
+  const loadNextChunk = useCallback(async () => {
+    if (!manifestLoaded || nextChunkIdx >= chunkUrls.length) return;
+    if (inFlightChunkRef.current === nextChunkIdx) return;
+    const targetIdx = nextChunkIdx;
+    const url = chunkUrls[targetIdx];
+    if (!url) return;
+
+    inFlightChunkRef.current = targetIdx;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const items = (await res.json()) as Article[];
+        if (Array.isArray(items) && items.length > 0) {
+          mergeArticles(items);
+        }
+      }
+      setNextChunkIdx((prev) => (prev === targetIdx ? targetIdx + 1 : prev));
     } finally {
-      setLoadingArchive(false);
+      if (inFlightChunkRef.current === targetIdx) {
+        inFlightChunkRef.current = null;
+      }
+      setLoadingMore(false);
     }
-  };
+  }, [chunkUrls, manifestLoaded, mergeArticles, nextChunkIdx]);
 
   useEffect(() => {
     try {
@@ -136,16 +204,37 @@ export function NewsFrontpage({
   );
   const moreNewsSection = useMemo(
     () =>
-      articles
-        .filter(
-          (a) =>
-            !usedInHero.has(a.id) &&
-            !bangladeshSection.some((b) => b.id === a.id) &&
-            !economyWorldSection.some((e) => e.id === a.id),
-        )
-        .slice(0, 40),
+      articles.filter(
+        (a) =>
+          !usedInHero.has(a.id) &&
+          !bangladeshSection.some((b) => b.id === a.id) &&
+          !economyWorldSection.some((e) => e.id === a.id),
+      ),
     [articles, usedInHero, bangladeshSection, economyWorldSection],
   );
+
+  // Automatic Infinite Scroll via IntersectionObserver (pre-fetches cleanly before user reaches footer)
+  useEffect(() => {
+    if (!hasMore || typeof IntersectionObserver === "undefined") return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void loadNextChunk();
+        }
+      },
+      { rootMargin: "700px 0px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, loadNextChunk]);
+
+  // When filtering by category or searching, seamlessly load remaining 10-day chunks automatically
+  useEffect(() => {
+    if (!isFilteredView || !hasMore || loadingMore) return;
+    void loadNextChunk();
+  }, [isFilteredView, hasMore, loadingMore, loadNextChunk]);
 
   const getTitle = (a: Article) => (lang === "bn" ? a.title_bn : a.title_en);
   const getSummary = (a: Article) => (lang === "bn" ? a.summary_bn : a.summary_en);
@@ -512,12 +601,12 @@ export function NewsFrontpage({
               </section>
             )}
 
-            {/* Section 4: Sports, Tech, Culture & Nationwide */}
+            {/* Section 4: Continuing Full News Stream (Auto Infinite Scroll) */}
             {moreNewsSection.length > 0 && (
               <section className="mt-8">
                 <div className="mb-4 flex items-center justify-between border-b-2 border-border pb-2">
                   <h2 className="font-display text-xl font-bold text-foreground">
-                    {lang === "bn" ? "সারাদেশ, খেলা ও প্রযুক্তি" : "Nationwide, Sports & Tech"}
+                    {lang === "bn" ? "আরও সংবাদ" : "More News"}
                   </h2>
                 </div>
 
@@ -550,22 +639,19 @@ export function NewsFrontpage({
           </>
         )}
 
-        {hasMoreArchive && process.env.NEXT_PUBLIC_SUPABASE_URL && (
-          <div className="mt-10 flex justify-center border-t border-border pt-6">
-            <button
-              type="button"
-              onClick={loadOlderArchive}
-              disabled={loadingArchive}
-              className="inline-flex min-h-11 items-center gap-2 rounded-sm border border-border bg-card px-6 py-2.5 text-sm font-bold text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-60"
-            >
-              {loadingArchive
-                ? lang === "bn"
-                  ? "আর্কাইভ লোড হচ্ছে..."
-                  : "Loading 10-day archive..."
-                : lang === "bn"
-                  ? "গত ১০ দিনের আরও সংবাদ দেখুন"
-                  : "Load older 10-day stories"}
-            </button>
+        {hasMore && (
+          <div ref={sentinelRef} aria-hidden={!loadingMore} className="mt-8 pt-4">
+            {loadingMore && (
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, idx) => (
+                  <div key={idx} className="space-y-3">
+                    <div className="aspect-[16/10] w-full animate-pulse rounded-sm bg-muted" />
+                    <div className="h-4 w-5/6 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </main>
