@@ -1,0 +1,23 @@
+# Dependencies & builds
+node_modules/
+.next/
+.open-next/
+.wrangler/
+out/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Environment & Secrets (NEVER commit secrets or local PAT stores)
+.env
+.env.*
+!.env.example
+.dev.vars
+data/pats.json
+data/ingest_logs.json
+
+# Python / OS / IDE
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
