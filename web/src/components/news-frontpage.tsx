@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, TrendingUp } from "lucide-react";
 import { CATEGORIES, formatNewsTime, toBengaliDigits, UI_COPY } from "@/lib/i18n";
+import { mapSupabaseArticleRow } from "@/lib/supabase-mapper";
 import type { Article, NewsCategory } from "@/lib/types";
 import { AdSlot } from "./ad-slot";
 import { useLanguage } from "./language-provider";
@@ -19,14 +20,51 @@ interface NewsFrontpageProps {
 }
 
 export function NewsFrontpage({
-  articles,
+  articles: initialArticles,
   initialCategory = "all",
 }: NewsFrontpageProps) {
   const { lang } = useLanguage();
   const copy = UI_COPY[lang];
+  const [articles, setArticles] = useState<Article[]>(() =>
+    [...initialArticles].sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at)),
+  );
   const [category, setCategory] = useState<NewsCategory>(initialCategory);
   const [searchQuery, setSearchQuery] = useState("");
   const [railTab, setRailTab] = useState<"latest" | "popular">("latest");
+  const [loadingArchive, setLoadingArchive] = useState(false);
+  const [hasMoreArchive, setHasMoreArchive] = useState(true);
+
+  const loadOlderArchive = async () => {
+    const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!sbUrl || !anonKey || loadingArchive) return;
+    setLoadingArchive(true);
+    try {
+      const res = await fetch(
+        `${sbUrl}/rest/v1/articles?select=*,article_sources(*)&status=eq.published&order=published_at.desc&limit=120&offset=${articles.length}`,
+        { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` } },
+      );
+      if (res.ok) {
+        const rows = (await res.json()) as Record<string, unknown>[];
+        if (!Array.isArray(rows) || rows.length === 0) {
+          setHasMoreArchive(false);
+        } else {
+          const nextItems = rows.map((r) => mapSupabaseArticleRow(r));
+          setArticles((prev) => {
+            const seen = new Set(prev.map((p) => p.slug));
+            const merged = [...prev];
+            for (const item of nextItems) {
+              if (!seen.has(item.slug)) merged.push(item);
+            }
+            return merged.sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
+          });
+          if (rows.length < 120) setHasMoreArchive(false);
+        }
+      }
+    } finally {
+      setLoadingArchive(false);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -105,7 +143,7 @@ export function NewsFrontpage({
             !bangladeshSection.some((b) => b.id === a.id) &&
             !economyWorldSection.some((e) => e.id === a.id),
         )
-        .slice(0, 8),
+        .slice(0, 40),
     [articles, usedInHero, bangladeshSection, economyWorldSection],
   );
 
@@ -510,6 +548,25 @@ export function NewsFrontpage({
               </section>
             )}
           </>
+        )}
+
+        {hasMoreArchive && process.env.NEXT_PUBLIC_SUPABASE_URL && (
+          <div className="mt-10 flex justify-center border-t border-border pt-6">
+            <button
+              type="button"
+              onClick={loadOlderArchive}
+              disabled={loadingArchive}
+              className="inline-flex min-h-11 items-center gap-2 rounded-sm border border-border bg-card px-6 py-2.5 text-sm font-bold text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-60"
+            >
+              {loadingArchive
+                ? lang === "bn"
+                  ? "আর্কাইভ লোড হচ্ছে..."
+                  : "Loading 10-day archive..."
+                : lang === "bn"
+                  ? "গত ১০ দিনের আরও সংবাদ দেখুন"
+                  : "Load older 10-day stories"}
+            </button>
+          </div>
         )}
       </main>
 

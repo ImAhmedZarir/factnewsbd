@@ -12,7 +12,7 @@ const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://factnewsbanglades
 );
 
 export async function generateStaticParams() {
-  const articles = await getArticles(52);
+  const articles = await getArticles(400);
   return articles.map((a) => ({ slug: a.slug }));
 }
 

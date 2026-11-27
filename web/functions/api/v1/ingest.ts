@@ -25,6 +25,14 @@ const ALLOWED_VERIFICATION = new Set([
   "fact_check",
   "disputed",
 ]);
+const KNOWN_SOURCE_IDS = new Set([
+  "prothomalo", "bdnews24-bn", "samakal", "jugantor", "ittefaq", "kalerkantho",
+  "bd-pratidin", "bonikbarta", "banglatribune", "dhakapost", "jagonews24",
+  "somoynews", "jamunatv", "kalbela", "deshrupantor", "ajkerpatrika", "mzamin",
+  "nayadiganta", "inqilab", "risingbd", "dailystar", "bdnews24-en",
+  "dhakatribune", "tbsnews", "financialexpress", "newage", "dainikazadi",
+  "purbokone", "rumorscanner", "dismislab",
+]);
 
 interface IncomingArticle {
   id?: string;
@@ -110,8 +118,8 @@ export async function onRequestPost(context: PagesContext) {
     return jsonResponse({ error: "Payload must include non-empty articles[]" }, 400, true);
   }
 
-  const rows: Record<string, unknown>[] = [];
-  const sourceRows: Record<string, unknown>[] = [];
+  const rowsMap = new Map<string, Record<string, unknown>>();
+  const sourceRowsMap = new Map<string, Record<string, unknown>>();
 
   for (let idx = 0; idx < rawArticles.length; idx += 1) {
     const item = rawArticles[idx]!;
@@ -135,7 +143,7 @@ export async function onRequestPost(context: PagesContext) {
       safeCustomSlug ||
       `${titleEn.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "story"}-${slugHash}`;
 
-    const articleId = `art_${slugHash}_${idx}`;
+    const articleId = `art_${slugHash}`;
     const category = item.category && ALLOWED_CATEGORIES.has(item.category) ? item.category : "national";
     const verificationStatus =
       item.verification_status && ALLOWED_VERIFICATION.has(item.verification_status)
@@ -149,7 +157,7 @@ export async function onRequestPost(context: PagesContext) {
       context.env.CDN_SIGNING_SECRET,
     );
 
-    rows.push({
+    rowsMap.set(slug, {
       id: articleId,
       slug,
       lang: item.lang === "en" ? "en" : "bn",
@@ -180,18 +188,17 @@ export async function onRequestPost(context: PagesContext) {
     });
 
     if (Array.isArray(item.sources)) {
-      const seenDomains = new Set<string>();
       for (const s of item.sources.slice(0, 10)) {
-        if (!s.domain || !s.url || !isSafeExternalUrl(s.url) || seenDomains.has(s.domain)) {
+        if (!s.domain || !s.url || !isSafeExternalUrl(s.url)) {
           continue;
         }
-        seenDomains.add(s.domain);
-        sourceRows.push({
+        const domKey = String(s.domain).slice(0, 120);
+        sourceRowsMap.set(`${articleId}::${domKey}`, {
           article_id: articleId,
-          source_id: s.sourceId || null,
+          source_id: s.sourceId && KNOWN_SOURCE_IDS.has(s.sourceId) ? s.sourceId : null,
           source_name_en: String(s.nameEn || item.primary_source || s.domain).slice(0, 120),
           source_name_bn: String(s.nameBn || item.primary_source_bn || s.domain).slice(0, 120),
-          source_domain: String(s.domain).slice(0, 120),
+          source_domain: domKey,
           original_url: s.url,
           original_headline: String(s.headline || titleBn).slice(0, 320),
           tier: Math.min(4, Math.max(1, Number(s.tier || 2))),
@@ -200,9 +207,44 @@ export async function onRequestPost(context: PagesContext) {
     }
   }
 
-  if (rows.length === 0) {
+  const rowsList = Array.from(rowsMap.values());
+  if (rowsList.length === 0) {
     return jsonResponse({ error: "No valid articles in payload" }, 400, true);
   }
+
+  // Look up any pre-existing slugs so we preserve their exact `id` and never trigger article_sources FK conflicts
+  const existingBySlug = new Map<string, string>();
+  const slugList = rowsList.map((r) => String(r.slug)).join(",");
+  const existingRes = await fetch(
+    `${sb.url}/rest/v1/articles?select=id,slug&slug=in.(${encodeURIComponent(slugList)})`,
+    {
+      headers: {
+        apikey: sb.serviceKey,
+        Authorization: `Bearer ${sb.serviceKey}`,
+      },
+    },
+  );
+  if (existingRes.ok) {
+    const existingRows = (await existingRes.json()) as Array<{ id: string; slug: string }>;
+    for (const er of existingRows) {
+      existingBySlug.set(er.slug, er.id);
+    }
+  }
+
+  const rows = rowsList.map((r) => {
+    const existingId = existingBySlug.get(String(r.slug));
+    return existingId ? { ...r, id: existingId } : r;
+  });
+
+  const remappedSourceRowsMap = new Map<string, Record<string, unknown>>();
+  for (const sRow of sourceRowsMap.values()) {
+    const oldArtId = String(sRow.article_id);
+    const matchedRow = rowsList.find((r) => String(r.id) === oldArtId);
+    const finalArtId = matchedRow ? (existingBySlug.get(String(matchedRow.slug)) || oldArtId) : oldArtId;
+    const domKey = String(sRow.source_domain);
+    remappedSourceRowsMap.set(`${finalArtId}::${domKey}`, { ...sRow, article_id: finalArtId });
+  }
+  const sourceRows = Array.from(remappedSourceRowsMap.values());
 
   const upsertRes = await fetch(`${sb.url}/rest/v1/articles?on_conflict=slug`, {
     method: "POST",
@@ -216,7 +258,8 @@ export async function onRequestPost(context: PagesContext) {
   });
 
   if (!upsertRes.ok) {
-    return jsonResponse({ error: "Database ingestion failed" }, 502, true);
+    const errTxt = await upsertRes.text();
+    return jsonResponse({ error: `Database ingestion failed: ${errTxt.slice(0, 180)}` }, 502, true);
   }
 
   if (sourceRows.length > 0) {

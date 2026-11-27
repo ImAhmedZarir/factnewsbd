@@ -46,7 +46,7 @@ export const metadata: Metadata = {
     "বাংলাদেশের খবর",
     "আজকের খবর",
     "verified news Bangladesh",
-    "Dhaka breaking news",
+    "Bangladesh breaking news",
   ],
   robots: {
     index: true,
@@ -152,7 +152,7 @@ export default function RootLayout({
         />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var s=localStorage.getItem("color-scheme");var m=document.querySelector('meta[name="color-scheme"]');if(m){m.setAttribute("content",s||"light dark");}var d=s==="dark"||((!s||s==="light dark")&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);}catch(e){}})();`,
+            __html: `(function(){try{var s=localStorage.getItem("color-scheme");var m=document.querySelector('meta[name="color-scheme"]');if(m){m.setAttribute("content",s==="dark"?"dark":"light");}var d=s==="dark";document.documentElement.classList.toggle("dark",d);}catch(e){}})();`,
           }}
         />
         {ADSENSE_CLIENT && (

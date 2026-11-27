@@ -47,18 +47,69 @@ export function NewsImage({
         onError={() => setFailed(true)}
         className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
       />
-      <span
-        aria-label="Collected from different sources"
-        className="pointer-events-none absolute right-1.5 bottom-1.5 max-w-[calc(100%-0.75rem)] truncate rounded-[2px] border border-white/15 bg-black/70 px-1.5 py-0.5 text-[7px] font-medium tracking-wide text-white/95 backdrop-blur-xs @min-[200px]:right-2 @min-[200px]:bottom-2 @min-[200px]:px-2 @min-[200px]:text-[10px]"
+
+      {/* Full-frame subtle diagonal crossmark + explicit source disclaimer watermark */}
+      <svg
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full"
       >
-        <span className="hidden @min-[200px]:inline">
+        <line
+          x1="0"
+          y1="0"
+          x2="100"
+          y2="100"
+          stroke="rgba(0,0,0,0.28)"
+          strokeWidth="0.9"
+          vectorEffect="non-scaling-stroke"
+        />
+        <line
+          x1="0"
+          y1="0"
+          x2="100"
+          y2="100"
+          stroke="rgba(255,255,255,0.28)"
+          strokeWidth="0.45"
+          vectorEffect="non-scaling-stroke"
+        />
+        <line
+          x1="100"
+          y1="0"
+          x2="0"
+          y2="100"
+          stroke="rgba(0,0,0,0.28)"
+          strokeWidth="0.9"
+          vectorEffect="non-scaling-stroke"
+        />
+        <line
+          x1="100"
+          y1="0"
+          x2="0"
+          y2="100"
+          stroke="rgba(255,255,255,0.28)"
+          strokeWidth="0.45"
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 flex items-center justify-center px-2 select-none"
+      >
+        <span className="hidden rounded-[2px] border border-white/20 bg-black/35 px-2 py-0.5 text-center text-[9px] font-semibold tracking-wider text-white/85 backdrop-blur-[1px] @min-[200px]:inline-block sm:text-[10px]">
           {activeLang === "bn"
-            ? "সংগৃহীত ছবি • বিভিন্ন সূত্র"
-            : "Collected from different sources"}
+            ? "সংগৃহীত ছবি • আমাদের তোলা নয় (Collected · Not taken by us)"
+            : "Collected · Not taken by us"}
         </span>
-        <span className="@min-[200px]:hidden">
-          {activeLang === "bn" ? "সংগৃহীত" : "Sourced"}
-        </span>
+      </div>
+
+      <span
+        aria-label="Collected from different sources, not taken by us"
+        className="pointer-events-none absolute right-1 bottom-1 max-w-[calc(100%-0.5rem)] truncate rounded-[2px] border border-white/15 bg-black/70 px-1.5 py-0.5 text-[7px] font-medium tracking-wide text-white/95 backdrop-blur-xs @min-[200px]:right-2 @min-[200px]:bottom-2 @min-[200px]:text-[9px]"
+      >
+        <span className="hidden @min-[200px]:inline">Collected · Not taken by us</span>
+        <span className="@min-[200px]:hidden">Collected</span>
       </span>
     </div>
   );

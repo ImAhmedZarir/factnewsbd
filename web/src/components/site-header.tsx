@@ -50,18 +50,10 @@ export function SiteHeader({
     setIsDark(nextDark);
     const schemeValue = nextDark ? "dark" : "light";
     try {
-      const osDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      if (nextDark === osDark) {
-        localStorage.removeItem("color-scheme");
-        document
-          .querySelector('meta[name="color-scheme"]')
-          ?.setAttribute("content", "light dark");
-      } else {
-        localStorage.setItem("color-scheme", schemeValue);
-        document
-          .querySelector('meta[name="color-scheme"]')
-          ?.setAttribute("content", schemeValue);
-      }
+      localStorage.setItem("color-scheme", schemeValue);
+      document
+        .querySelector('meta[name="color-scheme"]')
+        ?.setAttribute("content", schemeValue);
     } catch {
       // ignore
     }
@@ -81,18 +73,16 @@ export function SiteHeader({
         month: "long",
         day: "numeric",
       }).format(new Date())
-    : brand.edition;
+    : "";
 
   return (
     <>
-      {/* Non-sticky Masthead (scrolls cleanly like Prothom Alo & The Daily Star) */}
+      {/* Non-sticky Masthead */}
       <header className="border-b border-border bg-card">
         <div className="border-b border-border/80 bg-muted/60">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-1.5 text-xs sm:px-6 lg:px-8">
             <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-              <span className="truncate font-medium">{todayFormatted}</span>
-              <span className="hidden text-border sm:inline">•</span>
-              <span className="hidden font-medium sm:inline">{brand.edition}</span>
+              {todayFormatted && <span className="truncate font-medium">{todayFormatted}</span>}
             </div>
 
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">

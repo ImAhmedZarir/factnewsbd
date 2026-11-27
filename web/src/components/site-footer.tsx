@@ -141,7 +141,9 @@ export function SiteFooter() {
 
         <div className="mt-8 border-t border-border pt-6 text-center text-xs text-muted-foreground sm:flex sm:items-center sm:justify-between sm:text-left">
           <span>© {new Date().getFullYear()} {brand.name} • সর্বস্বত্ব সংরক্ষিত</span>
-          <span className="mt-1 block sm:mt-0">Dhaka, Bangladesh</span>
+          <span className="mt-1 block sm:mt-0">
+            {lang === "bn" ? "স্বাধীন ডিজিটাল সংবাদমাধ্যম" : "Independent Digital Newspaper"}
+          </span>
         </div>
       </div>
     </footer>

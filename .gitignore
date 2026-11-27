@@ -16,8 +16,9 @@ next-env.d.ts
 data/pats.json
 data/ingest_logs.json
 
-# Python / OS / IDE
+# Python / OS / IDE / Scraper binaries
 __pycache__/
 *.pyc
+scraper/bin/
 .DS_Store
 Thumbs.db
