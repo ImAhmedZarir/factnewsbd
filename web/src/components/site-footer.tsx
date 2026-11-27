@@ -23,15 +23,27 @@ export function SiteFooter() {
           <div className="md:col-span-5">
             <Link href="/" className="inline-flex items-center gap-2.5">
               <BrandEmblem className="size-9" />
-              <span className="font-display text-xl font-bold tracking-tight">
-                <span className="text-foreground">{brand.shortLeft}</span>{" "}
-                <span className="text-primary">{brand.shortRight}</span>
-              </span>
+              <div>
+                <div className="font-display text-xl font-bold tracking-tight leading-none">
+                  <span className="text-foreground">{brand.shortLeft}</span>{" "}
+                  <span className="text-primary">{brand.shortRight}</span>
+                </div>
+                <p className="mt-1 text-xs font-semibold text-primary">{brand.tagline}</p>
+              </div>
             </Link>
             <p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
               {lang === "bn"
                 ? "বাংলাদেশ ও আন্তর্জাতিক অঙ্গনের সর্বশেষ, নির্ভরযোগ্য এবং যাচাইকৃত সংবাদ পরিবেশনকারী ডিজিটাল নিউজ পোর্টাল।"
                 : "Independent Bangladeshi digital newspaper delivering verified national, economic, political, and global news coverage."}
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {lang === "bn" ? "ইমেইল: " : "Email: "}
+              <a
+                href="mailto:contact@factnewsbangladesh.bond"
+                className="font-medium text-foreground underline-offset-2 hover:text-primary hover:underline"
+              >
+                contact@factnewsbangladesh.bond
+              </a>
             </p>
 
             <div className="mt-4 flex items-center gap-2">

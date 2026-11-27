@@ -37,7 +37,7 @@ export async function GET() {
   <channel>
     <title>FactNews Bangladesh • ফ্যাক্টনিউজ বাংলাদেশ</title>
     <link>${escapeXml(baseUrl)}/</link>
-    <description>Independent bilingual digital newspaper delivering verified news across Bangladesh.</description>
+    <description>সত্য প্রকাশে একধাপ এগিয়ে • One step ahead in revealing the truth. Independent bilingual digital newspaper delivering verified news across Bangladesh.</description>
     <language>bn-bd</language>
     <atom:link href="${escapeXml(baseUrl)}/rss.xml" rel="self" type="application/rss+xml" />
 ${items}

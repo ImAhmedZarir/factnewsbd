@@ -133,7 +133,7 @@ export async function fetchSafeExternalImage(
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        Accept: "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8",
+        Accept: "image/jpeg,image/png,image/webp;q=0.9,image/*;q=0.5",
         "Accept-Language": "en-US,en;q=0.9,bn;q=0.8",
       },
       redirect: "manual",

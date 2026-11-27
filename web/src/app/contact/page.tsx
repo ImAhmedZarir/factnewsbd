@@ -10,9 +10,9 @@ export default function ContactPage() {
           headingBn: "সংশোধনী বা টেকডাউন অনুরোধ",
           headingEn: "Corrections & Publisher Inquiries",
           bodyBn:
-            "কোনো প্রতিবেদনের তথ্য সংশোধন, নতুন আঞ্চলিক পত্রিকা যুক্ত করা, অথবা প্রকাশকের কোনো অনুরোধের জন্য আমাদের সম্পাদকীয় ডেস্কে ইমেইল করুন: desk@factnewsbangladesh.bond (কনফিগারযোগ্য)।",
+            "কোনো প্রতিবেদনের তথ্য সংশোধন, নতুন আঞ্চলিক পত্রিকা যুক্ত করা, বিজ্ঞাপন বা সম্পাদকীয় যোগাযোগের জন্য আমাদের ইমেইল করুন: contact@factnewsbangladesh.bond।",
           bodyEn:
-            "For factual corrections, regional newspaper onboarding, or publisher attribution inquiries, contact our editorial desk at: desk@factnewsbangladesh.bond (configure your domain email before launch).",
+            "For factual corrections, regional newspaper onboarding, advertising, or editorial inquiries, contact us at: contact@factnewsbangladesh.bond.",
         },
       ]}
     />

@@ -6,12 +6,14 @@ export const SITE_BRAND = {
     shortLeft: "ফ্যাক্টনিউজ",
     shortRight: "বাংলাদেশ",
     edition: "ঢাকা সংস্করণ",
+    tagline: "সত্য প্রকাশে একধাপ এগিয়ে",
   },
   en: {
     name: "FactNews Bangladesh",
     shortLeft: "FactNews",
     shortRight: "Bangladesh",
     edition: "Dhaka Edition",
+    tagline: "One step ahead in revealing the truth.",
   },
 } as const;
 

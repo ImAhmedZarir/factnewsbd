@@ -11,12 +11,25 @@ const ADSENSE_CLIENT = process.env.NEXT_PUBLIC_ADSENSE_CLIENT || "";
 
 export const metadata: Metadata = {
   title: {
-    default: "FactNews Bangladesh • ফ্যাক্টনিউজ বাংলাদেশ",
+    default:
+      "FactNews Bangladesh — সত্য প্রকাশে একধাপ এগিয়ে | জাতীয়, রাজনীতি, অর্থনীতি ও বিশ্ব সংবাদ",
     template: "%s | FactNews Bangladesh",
   },
   description:
-    "FactNews Bangladesh — Independent bilingual digital newspaper delivering verified national, political, economic, sports, technology, and international news from Bangladesh.",
+    "FactNews Bangladesh (ফ্যাক্টনিউজ বাংলাদেশ) — সত্য প্রকাশে একধাপ এগিয়ে। One step ahead in revealing the truth. Independent bilingual digital newspaper for verified national, political, economic, sports, tech, and international news.",
   metadataBase: new URL(SITE_URL),
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-48x48.png", sizes: "48x48", type: "image/png" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
   alternates: {
     canonical: "/",
     languages: {
@@ -26,11 +39,12 @@ export const metadata: Metadata = {
   },
   keywords: [
     "FactNews Bangladesh",
+    "ফ্যাক্টনিউজ বাংলাদেশ",
+    "সত্য প্রকাশে একধাপ এগিয়ে",
     "Bangladesh news",
     "Bangla news",
     "বাংলাদেশের খবর",
     "আজকের খবর",
-    "ফ্যাক্টনিউজ বাংলাদেশ",
     "verified news Bangladesh",
     "Dhaka breaking news",
   ],
@@ -49,20 +63,26 @@ export const metadata: Metadata = {
     type: "website",
     url: SITE_URL,
     siteName: "FactNews Bangladesh",
-    title: "FactNews Bangladesh • ফ্যাক্টনিউজ বাংলাদেশ",
+    title: "FactNews Bangladesh — সত্য প্রকাশে একধাপ এগিয়ে | জাতীয় ও আন্তর্জাতিক সংবাদ",
     description:
-      "Independent bilingual digital newspaper delivering verified multi-source journalism across Bangladesh.",
+      "সত্য প্রকাশে একধাপ এগিয়ে • One step ahead in revealing the truth. Independent bilingual broadsheet delivering verified reporting from Bangladesh.",
     locale: "bn_BD",
     alternateLocale: ["en_US"],
+    images: [
+      {
+        url: `${SITE_URL}/og-image.png`,
+        width: 1200,
+        height: 630,
+        alt: "FactNews Bangladesh — সত্য প্রকাশে একধাপ এগিয়ে",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "FactNews Bangladesh • ফ্যাক্টনিউজ বাংলাদেশ",
+    title: "FactNews Bangladesh — সত্য প্রকাশে একধাপ এগিয়ে",
     description:
-      "Verified bilingual breaking news, politics, economy, sports & world coverage from Bangladesh.",
-  },
-  verification: {
-    // Set NEXT_PUBLIC_ADSENSE_CLIENT in Cloudflare Pages env to verify Google AdSense ownership
+      "One step ahead in revealing the truth. Verified bilingual breaking news, politics, economy, sports & world coverage from Bangladesh.",
+    images: [`${SITE_URL}/og-image.png`],
   },
 };
 
@@ -79,7 +99,15 @@ export default function RootLayout({
         "@id": `${SITE_URL}/#organization`,
         name: "FactNews Bangladesh",
         alternateName: "ফ্যাক্টনিউজ বাংলাদেশ",
+        slogan: "সত্য প্রকাশে একধাপ এগিয়ে • One step ahead in revealing the truth.",
+        email: "contact@factnewsbangladesh.bond",
         url: SITE_URL,
+        logo: {
+          "@type": "ImageObject",
+          url: `${SITE_URL}/icon-512.png`,
+          width: 512,
+          height: 512,
+        },
         publishingPrinciples: `${SITE_URL}/about`,
         correctionsPolicy: `${SITE_URL}/contact`,
       },
@@ -88,6 +116,7 @@ export default function RootLayout({
         "@id": `${SITE_URL}/#website`,
         url: SITE_URL,
         name: "FactNews Bangladesh",
+        description: "সত্য প্রকাশে একধাপ এগিয়ে • One step ahead in revealing the truth.",
         inLanguage: ["bn-BD", "en-US"],
         publisher: { "@id": `${SITE_URL}/#organization` },
         potentialAction: {

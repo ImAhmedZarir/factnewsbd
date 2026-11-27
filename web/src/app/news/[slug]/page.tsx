@@ -28,6 +28,8 @@ export async function generateMetadata({
   const title = article.title_bn;
   const description = article.summary_bn.slice(0, 155);
   const canonicalUrl = `${SITE_URL}/news/${article.slug}`;
+  const ogImage = article.image_cdn_url || `${SITE_URL}/og-image.png`;
+
   return {
     title,
     description,
@@ -55,18 +57,25 @@ export async function generateMetadata({
       title,
       description,
       url: canonicalUrl,
+      siteName: "FactNews Bangladesh",
       type: "article",
       publishedTime: article.published_at,
       modifiedTime: article.published_at,
       section: article.category,
-      images: article.image_cdn_url
-        ? [{ url: article.image_cdn_url, width: 1200, height: 675, alt: title }]
-        : undefined,
+      images: [
+        {
+          url: ogImage,
+          width: 1200,
+          height: 675,
+          alt: title,
+        },
+      ],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
+      images: [ogImage],
     },
   };
 }

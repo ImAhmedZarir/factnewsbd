@@ -193,11 +193,16 @@ export function SiteHeader({
             </button>
 
             <Link href="/" className="group flex min-w-0 items-center gap-2.5">
-              <BrandEmblem className="size-9 shrink-0 sm:size-10" />
-              <span className="font-display text-xl font-bold tracking-tight whitespace-nowrap sm:text-3xl">
-                <span className="text-foreground">{brand.shortLeft}</span>{" "}
-                <span className="text-primary">{brand.shortRight}</span>
-              </span>
+              <BrandEmblem className="size-9 shrink-0 sm:size-11" />
+              <div className="min-w-0">
+                <div className="font-display text-xl font-bold tracking-tight whitespace-nowrap sm:text-3xl leading-none">
+                  <span className="text-foreground">{brand.shortLeft}</span>{" "}
+                  <span className="text-primary">{brand.shortRight}</span>
+                </div>
+                <p className="mt-1 truncate text-[11px] font-semibold tracking-wide text-muted-foreground sm:text-xs">
+                  {brand.tagline}
+                </p>
+              </div>
             </Link>
           </div>
 

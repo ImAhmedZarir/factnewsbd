@@ -11,11 +11,28 @@ const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://factnewsbanglades
 );
 
 export const metadata: Metadata = {
-  title: "FactNews Bangladesh • সর্বশেষ বাংলা ও ইংরেজি সংবাদ",
+  title: {
+    absolute:
+      "FactNews Bangladesh — সত্য প্রকাশে একধাপ এগিয়ে | ফ্যাক্টনিউজ বাংলাদেশ • সর্বশেষ সংবাদ",
+  },
   description:
-    "বাংলাদেশ, রাজনীতি, অর্থনীতি, বিশ্ব, প্রযুক্তি ও খেলার সর্বশেষ যাচাইকৃত সংবাদ — FactNews Bangladesh।",
+    "সত্য প্রকাশে একধাপ এগিয়ে — One step ahead in revealing the truth. বাংলাদেশ, রাজনীতি, অর্থনীতি, বিশ্ব, প্রযুক্তি ও খেলার যাচাইকৃত বাংলা ও ইংরেজি সংবাদ।",
   alternates: {
     canonical: `${SITE_URL}/`,
+  },
+  openGraph: {
+    title: "FactNews Bangladesh — সত্য প্রকাশে একধাপ এগিয়ে | ফ্যাক্টনিউজ বাংলাদেশ",
+    description:
+      "সত্য প্রকাশে একধাপ এগিয়ে • One step ahead in revealing the truth. Verified national & international news from Bangladesh.",
+    url: `${SITE_URL}/`,
+    images: [
+      {
+        url: `${SITE_URL}/og-image.png`,
+        width: 1200,
+        height: 630,
+        alt: "FactNews Bangladesh — সত্য প্রকাশে একধাপ এগিয়ে",
+      },
+    ],
   },
 };
 

@@ -106,8 +106,8 @@ async function fetchSafeImage(initialUrl: string): Promise<{ ok: true; contentTy
     if (!isSafeExternalUrl(currentUrl)) return { ok: false };
     const upstream = await fetch(currentUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; FactNewsBDCdn/1.1)",
-        Accept: "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8",
+        "User-Agent": "Mozilla/5.0 (compatible; FactNewsBDCdn/1.2)",
+        Accept: "image/jpeg,image/png,image/webp;q=0.9,image/*;q=0.5",
       },
       redirect: "manual",
       cf: { cacheTtl: 86400, cacheEverything: true },
